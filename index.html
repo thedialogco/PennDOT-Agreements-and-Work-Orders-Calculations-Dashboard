@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Escalation Calculator</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #f1f5f9;
+      min-height: 100vh;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 48px 16px 64px;
+      color: #1e293b;
+    }
+
+    .container { width: 100%; max-width: 580px; }
+
+    header { text-align: center; margin-bottom: 32px; }
+    header h1 { font-size: 26px; font-weight: 700; color: #0f172a; margin-bottom: 6px; }
+    header p  { font-size: 14px; color: #64748b; }
+
+    .card {
+      background: #fff;
+      border-radius: 14px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.07), 0 6px 20px rgba(0,0,0,0.06);
+      padding: 32px;
+      margin-bottom: 20px;
+    }
+
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: #94a3b8;
+      margin-bottom: 20px;
+    }
+
+    .form-group { margin-bottom: 22px; }
+    .form-group:last-of-type { margin-bottom: 0; }
+
+    label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: #374151;
+      margin-bottom: 7px;
+    }
+
+    label .hint {
+      font-weight: 400;
+      color: #94a3b8;
+      margin-left: 6px;
+    }
+
+    .input-row { display: flex; gap: 10px; }
+    .input-row select { flex: 2; }
+    .input-row input  { flex: 1; min-width: 0; }
+
+    select, input[type="number"] {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 8px;
+      font-size: 14px;
+      color: #1e293b;
+      background: #fff;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+      appearance: auto;
+    }
+
+    select:focus, input[type="number"]:focus {
+      border-color: #0D3B38;
+      box-shadow: 0 0 0 3px rgba(13,59,56,0.14);
+    }
+
+    .pct-wrap { position: relative; }
+    .pct-wrap input { padding-right: 32px; }
+    .pct-symbol {
+      position: absolute; right: 12px; top: 50%;
+      transform: translateY(-50%);
+      color: #94a3b8; font-size: 14px; pointer-events: none;
+    }
+
+    .duration-pill {
+      display: none;
+      margin-top: 9px;
+      padding: 7px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+    .duration-pill.ok    { display: block; background: #e8f4f3; color: #0D3B38; border: 1px solid #b3d4d2; }
+    .duration-pill.error { display: block; background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
+
+    .divider { border: none; border-top: 1px solid #f1f5f9; margin: 24px 0; }
+
+    .btn {
+      display: block; width: 100%;
+      padding: 13px; border: none; border-radius: 9px;
+      font-size: 15px; font-weight: 600; cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+    }
+    .btn:active { transform: scale(0.985); }
+
+    .btn-primary  { background: #0D3B38; color: #fff; }
+    .btn-primary:hover { background: #0a2e2b; }
+
+    .btn-ghost {
+      background: transparent; color: #64748b;
+      border: 1.5px solid #e2e8f0; font-size: 14px;
+      padding: 9px 18px; width: auto;
+    }
+    .btn-ghost:hover { background: #f8fafc; }
+
+    .btn-copy {
+      background: #f8fafc; color: #374151;
+      border: 1.5px solid #e2e8f0; font-size: 14px;
+      padding: 9px 18px; width: auto;
+    }
+    .btn-copy:hover { background: #f1f5f9; }
+    .btn-copy.copied { background: #f0fdf4; color: #16a34a; border-color: #bbf7d0; }
+
+    /* Results */
+    .results { display: none; }
+    .results.show { display: block; }
+
+    .result-banner {
+      text-align: center;
+      background: linear-gradient(135deg, #072422 0%, #0D3B38 60%, #165e59 100%);
+      border-radius: 10px;
+      padding: 28px 20px;
+      margin-bottom: 24px;
+      color: #fff;
+    }
+    .result-banner .rlabel {
+      font-size: 11px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: 0.1em;
+      opacity: 0.75; margin-bottom: 8px;
+    }
+    .result-banner .rvalue {
+      font-size: 56px; font-weight: 800; line-height: 1;
+      letter-spacing: -0.02em;
+    }
+    .result-banner .rdur {
+      margin-top: 10px; font-size: 13px; opacity: 0.7;
+    }
+
+    .formula-label {
+      font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 8px;
+    }
+
+    textarea {
+      width: 100%; padding: 12px 14px;
+      border: 1.5px solid #e2e8f0; border-radius: 8px;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 13px; line-height: 1.65; color: #1e293b;
+      background: #f8fafc; resize: vertical; min-height: 80px;
+      outline: none; cursor: text;
+    }
+    textarea:focus { border-color: #0D3B38; box-shadow: 0 0 0 3px rgba(13,59,56,0.12); }
+
+    .action-row {
+      display: flex; gap: 10px; margin-top: 12px;
+      align-items: center; flex-wrap: wrap;
+    }
+
+    .copied-confirm {
+      font-size: 13px; font-weight: 500; color: #16a34a;
+      display: none; align-items: center; gap: 4px;
+    }
+    .copied-confirm.show { display: flex; }
+  </style>
+</head>
+<body>
+<div class="container">
+
+  <header>
+    <h1>Escalation Calculator</h1>
+    <p>For PennDOT Work Orders</p>
+  </header>
+
+  <!-- Input card -->
+  <div class="card">
+    <div class="section-title">Work Order Details</div>
+
+    <div class="form-group">
+      <label>NTP Date <span class="hint">anticipated month &amp; year</span></label>
+      <div class="input-row">
+        <select id="ntp-month"></select>
+        <input type="number" id="ntp-year" placeholder="Year" min="2000" max="2100" />
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>GFT Estimated Yearly Increase</label>
+      <div class="pct-wrap">
+        <input type="number" id="gft-pct" placeholder="e.g. 3.00" min="0" max="100" step="0.01" />
+        <span class="pct-symbol">%</span>
+      </div>
+    </div>
+
+    <div class="form-group">
+      <label>Anticipated Work Completion Date</label>
+      <div class="input-row">
+        <select id="end-month"></select>
+        <input type="number" id="end-year" placeholder="Year" min="2000" max="2100" />
+      </div>
+      <div class="duration-pill" id="dur-pill"></div>
+    </div>
+
+    <hr class="divider" />
+    <button class="btn btn-primary" onclick="calculate()">Calculate Escalation</button>
+  </div>
+
+  <!-- Results card -->
+  <div class="card results" id="results">
+    <div class="result-banner">
+      <div class="rlabel">Escalation Percentage</div>
+      <div class="rvalue" id="res-pct">—</div>
+      <div class="rdur" id="res-dur"></div>
+    </div>
+
+    <div class="formula-label">Escalation Formula</div>
+    <textarea id="formula-out" readonly onclick="this.select()"></textarea>
+
+    <div class="action-row">
+      <button class="btn btn-copy" id="copy-btn" onclick="copyFormula()">Copy Formula</button>
+      <button class="btn btn-ghost" onclick="resetForm()">Calculate Again</button>
+      <div class="copied-confirm" id="copied-ok">✓ Copied</div>
+    </div>
+  </div>
+
+</div>
+<script>
+const FULL  = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const ABBR  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+
+// Populate dropdowns
+['ntp-month','end-month'].forEach(id => {
+  const sel = document.getElementById(id);
+  FULL.forEach((name, i) => {
+    const o = document.createElement('option');
+    o.value = i; o.textContent = name; sel.appendChild(o);
+  });
+});
+
+// Default to current month/year
+const now = new Date();
+const curYear = now.getFullYear();
+document.getElementById('ntp-month').value = now.getMonth();
+document.getElementById('ntp-year').value  = curYear;
+document.getElementById('end-month').value = now.getMonth();
+document.getElementById('end-year').value  = curYear;
+
+// Live duration badge
+['ntp-month','ntp-year','end-month','end-year'].forEach(id =>
+  document.getElementById(id).addEventListener('input', refreshDuration)
+);
+
+function getDuration() {
+  const nm = +document.getElementById('ntp-month').value;
+  const ny = +document.getElementById('ntp-year').value;
+  const em = +document.getElementById('end-month').value;
+  const ey = +document.getElementById('end-year').value;
+  if (isNaN(nm)||isNaN(ny)||isNaN(em)||isNaN(ey)) return null;
+  // Inclusive of both start and end months
+  return (ey - ny) * 12 + (em - nm) + 1;
+}
+
+function refreshDuration() {
+  const pill = document.getElementById('dur-pill');
+  const dur  = getDuration();
+  if (dur === null) { pill.className = 'duration-pill'; return; }
+  if (dur < 1) {
+    pill.className = 'duration-pill error';
+    pill.textContent = 'End date must be on or after the NTP date.';
+  } else {
+    pill.className = 'duration-pill ok';
+    pill.textContent = `Calculated duration: ${dur} month${dur !== 1 ? 's' : ''}`;
+  }
+}
+
+// ── Core helpers ──────────────────────────────────────────────────────────
+function addMonths(month, year, n) {
+  const t = year * 12 + month + n;
+  return { month: t % 12, year: Math.floor(t / 12) };
+}
+
+function buildSegments(ntpMonth, ntpYear, gftPct, duration) {
+  const segs = [];
+  let cm = ntpMonth, cy = ntpYear, rate = 1.0, rem = duration;
+
+  while (rem > 0) {
+    // How many months until (but not including) the next April
+    const toApril = cm < 3 ? (3 - cm) : (15 - cm);
+    const n = Math.min(toApril, rem);
+
+    const ep = addMonths(cm, cy, n - 1);   // end of this segment (inclusive)
+    segs.push({ months: n, sm: cm, sy: cy, em: ep.month, ey: ep.year, rate });
+
+    rem -= n;
+    const next = addMonths(cm, cy, n);
+    cm = next.month; cy = next.year;
+
+    // Arrived at April → apply compounded increase for next segment
+    if (cm === 3 && rem > 0) rate = rate * (1 + gftPct / 100);
+  }
+  return segs;
+}
+
+function buildFormula(segs, ws, avgRate, esc, dur, ntpMonth, ntpYear, gftPct) {
+  const firstAprilYear = ntpMonth < 3 ? ntpYear : ntpYear + 1;
+  const preamble = `Escalation: NTP anticipated in ${FULL[ntpMonth]}. GFT estimates a ${gftPct}% full yearly increase in April ${firstAprilYear}. This Work Order is expected to be completed within ${dur} months from NTP. Therefore: `;
+
+  const parts = segs.map(s => {
+    const start   = `${ABBR[s.sm]} ${s.sy}`;
+    const end     = `${ABBR[s.em]} ${s.ey}`;
+    const rateStr = s.rate.toFixed(4);
+    const prod    = (s.months * s.rate).toFixed(4);
+    return `${s.months} months (${start}-${end}) @ ${rateStr} = ${prod}`;
+  });
+  const wsStr  = ws.toFixed(4);
+  const arStr  = avgRate.toFixed(4);
+  const escStr = esc.toFixed(4);
+  return preamble + `${parts.join(', and ')}, total = ${wsStr} / ${dur} months = ${arStr} = (${arStr} - 1)*(100) = ${escStr}%`;
+}
+
+// ── Calculate ─────────────────────────────────────────────────────────────
+function calculate() {
+  const ntpMonth = +document.getElementById('ntp-month').value;
+  const ntpYear  = +document.getElementById('ntp-year').value;
+  const gftPct   = +document.getElementById('gft-pct').value;
+  const duration = getDuration();
+
+  if (!ntpYear || isNaN(gftPct) || document.getElementById('gft-pct').value === '') {
+    alert('Please fill in all fields before calculating.');
+    return;
+  }
+  if (duration === null || duration < 1) {
+    alert('End date must be on or after the NTP date.');
+    return;
+  }
+  if (gftPct < 0) {
+    alert('GFT percentage must be 0 or greater.');
+    return;
+  }
+
+  const segs    = buildSegments(ntpMonth, ntpYear, gftPct, duration);
+  const ws      = segs.reduce((s, seg) => s + seg.months * seg.rate, 0);
+  const avgRate = ws / duration;
+  const esc     = (avgRate - 1) * 100;
+
+  document.getElementById('res-pct').textContent  = esc.toFixed(2) + '%';
+  document.getElementById('res-dur').textContent  = `Over ${duration} month${duration !== 1 ? 's' : ''} · ${gftPct}% annual GFT increase`;
+  document.getElementById('formula-out').value    = buildFormula(segs, ws, avgRate, esc, duration, ntpMonth, ntpYear, gftPct);
+
+  const results = document.getElementById('results');
+  results.className = 'card results show';
+  results.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// ── Copy & Reset ──────────────────────────────────────────────────────────
+function copyFormula() {
+  const text = document.getElementById('formula-out').value;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById('copy-btn');
+    const ok  = document.getElementById('copied-ok');
+    btn.textContent = 'Copied!';
+    btn.className   = 'btn btn-copy copied';
+    ok.className    = 'copied-confirm show';
+    setTimeout(() => {
+      btn.textContent = 'Copy Formula';
+      btn.className   = 'btn btn-copy';
+      ok.className    = 'copied-confirm';
+    }, 2500);
+  });
+}
+
+function resetForm() {
+  document.getElementById('results').className = 'card results';
+  document.getElementById('gft-pct').value = '';
+  document.getElementById('copy-btn').textContent = 'Copy Formula';
+  document.getElementById('copy-btn').className   = 'btn btn-copy';
+  document.getElementById('copied-ok').className  = 'copied-confirm';
+  refreshDuration();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+// Init duration badge
+refreshDuration();
+</script>
+</body>
+</html>
