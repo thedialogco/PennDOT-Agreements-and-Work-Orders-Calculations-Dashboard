@@ -383,10 +383,27 @@
     }
 
     /* Highlight + bold + center the Hours column */
-    .rtable td.hours-cell { font-weight: 700; text-align: center; }
+    .rtable td.hours-cell { font-weight: 700; text-align: center; white-space: nowrap; }
     .rtable thead th:nth-child(2) { text-align: center; }
     .rtable tbody tr.subrow-row td.hours-cell { background: #f0fdf4; color: #15803d; }
     .rtable tr.total-row td.hours-cell { background: #15803d; color: #fff; }
+
+    .copy-hrs-btn {
+      margin-left: 7px;
+      background: transparent;
+      border: 1px solid #bbf7d0;
+      border-radius: 4px;
+      color: #86efac;
+      cursor: pointer;
+      font-size: 11px;
+      font-family: inherit;
+      padding: 1px 5px;
+      line-height: 1.4;
+      vertical-align: middle;
+      transition: background 0.12s, color 0.12s, border-color 0.12s;
+    }
+    .copy-hrs-btn:hover { background: #dcfce7; color: #15803d; border-color: #4ade80; }
+    .copy-hrs-btn.copied { background: #15803d; color: #fff; border-color: #15803d; }
 
     .indicators {
       display: grid;
@@ -484,6 +501,7 @@
       <textarea id="formula-out" readonly onclick="this.select()"></textarea>
 
       <div class="action-row">
+        <button class="btn btn-copy" id="copy-pct-btn" onclick="copyPercent()">Copy %</button>
         <button class="btn btn-copy" id="copy-btn" onclick="copyFormula()">Copy Formula</button>
         <button class="btn btn-ghost" onclick="resetEscForm()">Calculate Again</button>
         <div class="copied-confirm" id="copied-ok">✓ Copied</div>
@@ -883,6 +901,30 @@ function calculateEscalation() {
   sessionStorage.setItem(KEY.escRate, esc.toFixed(4));
 }
 
+function copyHours(btn, value) {
+  navigator.clipboard.writeText(String(Math.round(value))).then(() => {
+    btn.textContent = '✓';
+    btn.classList.add('copied');
+    setTimeout(() => {
+      btn.textContent = '⧉';
+      btn.classList.remove('copied');
+    }, 1500);
+  });
+}
+
+function copyPercent() {
+  const text = document.getElementById('res-pct').textContent.trim();
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById('copy-pct-btn');
+    btn.textContent = 'Copied!';
+    btn.className   = 'btn btn-copy copied';
+    setTimeout(() => {
+      btn.textContent = 'Copy %';
+      btn.className   = 'btn btn-copy';
+    }, 2500);
+  });
+}
+
 function copyFormula() {
   const text = document.getElementById('formula-out').value;
   navigator.clipboard.writeText(text).then(() => {
@@ -902,6 +944,8 @@ function copyFormula() {
 function resetEscForm() {
   document.getElementById('esc-results').className = 'card card-narrow results';
   document.getElementById('gft-pct').value = '';
+  document.getElementById('copy-pct-btn').textContent = 'Copy %';
+  document.getElementById('copy-pct-btn').className   = 'btn btn-copy';
   document.getElementById('copy-btn').textContent = 'Copy Formula';
   document.getElementById('copy-btn').className   = 'btn btn-copy';
   document.getElementById('copied-ok').className  = 'copied-confirm';
@@ -1124,39 +1168,62 @@ function escapeAttr(s) {
 
 // ── Solver ────────────────────────────────────────────────────────────
 
-// Distribute blank-row hours (whole numbers, possibly unequal) such that
-// Σ (hours_i × rate_i) is as close to `target` as possible.
-// Starts everyone at floor(equal-share), then greedily adds +1 hour to whichever
-// row improves the absolute distance to target the most. Stops when no +1
-// improves the result.
-function distributeBlankHours(blankRows, target) {
+// Find non-negative integer hours for each blank row such that
+// Σ(hours_i × rate_i) is as close as possible to `budget`.
+// Uses a DP "closest coin change" approach — far more accurate than
+// the old greedy +1 loop, especially for awkward rate combinations.
+function bestIntegerHoursAlloc(blankRows, budget) {
   if (blankRows.length === 0) return [];
   const R = blankRows.reduce((s, r) => s + r.rate, 0);
-  if (R === 0 || target <= 0) return blankRows.map(() => 0);
+  if (R === 0 || budget <= 0) return blankRows.map(() => 0);
 
-  const ideal = target / R;
-  const base  = Math.max(0, Math.floor(ideal));
-  const alloc = blankRows.map(() => base);
-  let currentSum = base * R;
-  let bestDist   = Math.abs(target - currentSum);
+  // Equal base: each row starts at floor(budget / R) hours
+  const baseH   = Math.max(0, Math.floor(budget / R));
+  const baseSum = baseH * R;
+  const gap     = budget - baseSum; // 0 <= gap < R
 
-  let safety = blankRows.length * 200;
-  while (safety-- > 0) {
-    let bestIdx = -1;
-    let bestNewDist = bestDist;
-    for (let i = 0; i < blankRows.length; i++) {
-      const newDist = Math.abs(target - (currentSum + blankRows[i].rate));
-      if (newDist < bestNewDist) {
-        bestNewDist = newDist;
-        bestIdx = i;
+  if (gap < 0.005) return blankRows.map(() => baseH);
+
+  // Work in integer cents to avoid floating-point drift
+  const SCALE    = 100;
+  const coins    = blankRows.map(r => Math.round(r.rate * SCALE));
+  const G        = Math.round(gap * SCALE);
+  const maxCoin  = Math.max(...coins);
+  const maxS     = G + maxCoin; // allow up to one coin of overshoot
+
+  // usedCoin[s] = index of the coin used last to reach sum s, or -1 if unreachable
+  // Sentinel: index coins.length marks s=0 (reachable at cost 0)
+  const usedCoin = new Int16Array(maxS + 1).fill(-1);
+  usedCoin[0] = coins.length;
+
+  for (let s = 1; s <= maxS; s++) {
+    for (let i = 0; i < coins.length; i++) {
+      if (coins[i] <= s && usedCoin[s - coins[i]] >= 0) {
+        usedCoin[s] = i;
+        break;
       }
     }
-    if (bestIdx < 0) break;
-    alloc[bestIdx]++;
-    currentSum += blankRows[bestIdx].rate;
-    bestDist = bestNewDist;
   }
-  return alloc;
+
+  // Find the reachable sum closest to G
+  let bestS = 0;
+  for (let s = 1; s <= maxS; s++) {
+    if (usedCoin[s] >= 0 && Math.abs(s - G) < Math.abs(bestS - G)) {
+      bestS = s;
+    }
+  }
+
+  // Reconstruct which rows get extra hours
+  const extra = new Array(blankRows.length).fill(0);
+  let s = bestS;
+  while (s > 0) {
+    const ci = usedCoin[s];
+    if (ci < 0 || ci >= blankRows.length) break;
+    extra[ci]++;
+    s -= coins[ci];
+  }
+
+  return blankRows.map((_, i) => baseH + extra[i]);
 }
 
 function calculateLabor() {
@@ -1243,8 +1310,6 @@ function calculateLabor() {
   const N_PM    = pmRows.length;
   const N_blank = blankRows.length;
 
-  let a = 0;              // hours per PM row (all PM rows get the same)
-  let blankAlloc = [];    // hours per blank non-PM row (can vary)
   let warnings = [];
 
   const remaining = (target - F_$) / K;
@@ -1253,39 +1318,43 @@ function calculateLabor() {
     warnings.push('Your entered hours already meet or exceed the target. Reduce or clear some values.');
   }
 
-  if (N_PM > 0 && N_blank > 0) {
-    // First estimate using equal-distribution math to set PM
-    const alpha = F_h * R_PM / (19 * N_PM);
-    const beta  = N_blank * R_PM / (19 * N_PM) + R_blank;
-    const b_est = (remaining - alpha) / beta;
-    const a_est = (F_h + N_blank * b_est) / (19 * N_PM);
-    a = Math.max(0, Math.floor(a_est));
-    // Now distribute the rest among blanks (potentially unequally)
-    let remBlanks = remaining - a * R_PM;
-    blankAlloc = distributeBlankHours(blankRows, remBlanks);
+  // Integer solver: compute ideal fractional PM hours (a_exact) via closed-form
+  // algebra, then floor to a whole number. Use DP-based closest-coin-change for
+  // blank rows to minimise the residual gap.
+  let a_int = 0; // whole hours per PM classification row
 
-    // If rounding pushed PM above 5%, step a down until ≤ 5%
-    let totalHrs = F_h + N_PM * a + blankAlloc.reduce((s, h) => s + h, 0);
-    let safety = 200;
-    while (a > 0 && totalHrs > 0 && (N_PM * a) / totalHrs > 0.05 && safety-- > 0) {
-      a -= 1;
-      remBlanks = remaining - a * R_PM;
-      blankAlloc = distributeBlankHours(blankRows, remBlanks);
-      totalHrs = F_h + N_PM * a + blankAlloc.reduce((s, h) => s + h, 0);
+  if (N_PM > 0) {
+    let a_exact = 0;
+    if (N_blank === 0) {
+      const aFromBudget = R_PM > 0 ? remaining / R_PM : 0;
+      const aFromCap    = F_h > 0  ? F_h / (19 * N_PM) : aFromBudget;
+      a_exact = Math.min(aFromBudget, aFromCap);
+      if (aFromBudget - a_exact > 0.001) {
+        warnings.push('PM hours are capped at 5% of total. Add non-PM rate classifications to absorb the remaining budget.');
+      }
+    } else {
+      const denom = N_blank * R_PM + 19 * N_PM * R_blank;
+      if (denom > 0) {
+        const b_exact = (19 * N_PM * remaining - F_h * R_PM) / denom;
+        a_exact = b_exact >= 0
+          ? (F_h + N_blank * b_exact) / (19 * N_PM)
+          : Math.min(R_PM > 0 ? remaining / R_PM : 0, F_h > 0 ? F_h / (19 * N_PM) : 0);
+      }
     }
-  } else if (N_PM > 0 && N_blank === 0) {
-    a = Math.max(0, Math.floor(F_h / (19 * N_PM)));
-  } else if (N_blank > 0 && N_PM === 0) {
-    blankAlloc = distributeBlankHours(blankRows, remaining);
+    a_int = Math.max(0, Math.floor(a_exact));
   }
 
-  // Map each blank row to its allocated hours (preserve order)
+  // Budget left after fixed rows and PM rows
+  const blankBudget = remaining - a_int * R_PM;
+
+  // Use DP to find the best whole-hour allocation for blank rows
+  const blankAlloc   = bestIntegerHoursAlloc(blankRows, blankBudget);
   const blankHoursMap = new Map();
   blankRows.forEach((r, i) => blankHoursMap.set(r, blankAlloc[i] || 0));
 
-  // Assemble final row hours
+  // Assemble final rows with integer hours
   const finalRows = allRows.map(r => {
-    if (r.isPM) return { ...r, hours: a };
+    if (r.isPM) return { ...r, hours: a_int };
     if (r.hours !== null && !isNaN(r.hours)) return r;
     return { ...r, hours: blankHoursMap.get(r) || 0 };
   });
@@ -1336,7 +1405,7 @@ function renderLaborResults(tasks, finalRows, target, oh, esc, profit, K, warnin
       tr.className = 'subrow-row' + (s.isPM ? ' pm-row' : '');
       tr.innerHTML = `
         <td style="padding-left: 28px;">${taskIdx}.${subIdx} ${escapeHtml(s.name)}</td>
-        <td class="hours-cell">${fmtNum(hours, 0)}</td>
+        <td class="hours-cell">${fmtNum(hours, 0)}<button class="copy-hrs-btn" onclick="copyHours(this,${hours})" title="Copy hours">⧉</button></td>
         <td>${fmtUSD(s.rate)}</td>
         <td>${fmtUSD(payroll)}</td>
         <td>${fmtUSD(escAmt)}</td>
