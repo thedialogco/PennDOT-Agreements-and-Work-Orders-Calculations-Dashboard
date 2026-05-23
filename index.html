@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Escalation Calculator</title>
+  <title>PennDOT Work Order Dashboard</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -11,26 +11,68 @@
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: #f1f5f9;
       min-height: 100vh;
-      display: flex;
-      align-items: flex-start;
-      justify-content: center;
-      padding: 48px 16px 64px;
+      padding: 32px 16px 64px;
       color: #1e293b;
     }
 
-    .container { width: 100%; max-width: 580px; }
+    .container { width: 100%; max-width: 1100px; margin: 0 auto; }
 
-    header { text-align: center; margin-bottom: 32px; }
-    header h1 { font-size: 26px; font-weight: 700; color: #0f172a; margin-bottom: 6px; }
+    /* ── Header ───────────────────────────────────────────────────────── */
+    header { text-align: center; margin-bottom: 24px; }
+    header h1 { font-size: 28px; font-weight: 700; color: #0f172a; margin-bottom: 4px; }
     header p  { font-size: 14px; color: #64748b; }
 
+    /* ── Expiration warning banner ────────────────────────────────────── */
+    .warn-banner {
+      display: none;
+      background: #fef2f2;
+      border: 1.5px solid #fecaca;
+      color: #b91c1c;
+      padding: 12px 16px;
+      border-radius: 10px;
+      margin-bottom: 18px;
+      font-size: 14px;
+      font-weight: 500;
+    }
+    .warn-banner.show { display: block; }
+    .warn-banner strong { font-weight: 700; }
+
+    /* ── Tabs ─────────────────────────────────────────────────────────── */
+    .tabs {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 20px;
+      border-bottom: 2px solid #e2e8f0;
+      padding-bottom: 0;
+    }
+    .tab {
+      background: transparent;
+      border: none;
+      padding: 12px 22px;
+      font-family: inherit;
+      font-size: 14px;
+      font-weight: 600;
+      color: #64748b;
+      cursor: pointer;
+      border-bottom: 3px solid transparent;
+      margin-bottom: -2px;
+      transition: color 0.15s, border-color 0.15s;
+    }
+    .tab:hover { color: #0D3B38; }
+    .tab.active { color: #0D3B38; border-bottom-color: #0D3B38; }
+
+    .panel { display: none; }
+    .panel.active { display: block; }
+
+    /* ── Cards ────────────────────────────────────────────────────────── */
     .card {
       background: #fff;
       border-radius: 14px;
       box-shadow: 0 1px 3px rgba(0,0,0,0.07), 0 6px 20px rgba(0,0,0,0.06);
-      padding: 32px;
-      margin-bottom: 20px;
+      padding: 28px;
+      margin-bottom: 18px;
     }
+    .card-narrow { max-width: 580px; margin-left: auto; margin-right: auto; }
 
     .section-title {
       font-size: 11px;
@@ -38,10 +80,11 @@
       text-transform: uppercase;
       letter-spacing: 0.08em;
       color: #94a3b8;
-      margin-bottom: 20px;
+      margin-bottom: 18px;
     }
 
-    .form-group { margin-bottom: 22px; }
+    /* ── Forms ────────────────────────────────────────────────────────── */
+    .form-group { margin-bottom: 20px; }
     .form-group:last-of-type { margin-bottom: 0; }
 
     label {
@@ -51,7 +94,6 @@
       color: #374151;
       margin-bottom: 7px;
     }
-
     label .hint {
       font-weight: 400;
       color: #94a3b8;
@@ -62,7 +104,7 @@
     .input-row select { flex: 2; }
     .input-row input  { flex: 1; min-width: 0; }
 
-    select, input[type="number"] {
+    select, input[type="number"], input[type="text"], input[type="date"] {
       width: 100%;
       padding: 10px 12px;
       border: 1.5px solid #e2e8f0;
@@ -73,17 +115,28 @@
       outline: none;
       transition: border-color 0.15s, box-shadow 0.15s;
       appearance: auto;
+      font-family: inherit;
     }
-
-    select:focus, input[type="number"]:focus {
+    select:focus, input:focus {
       border-color: #0D3B38;
       box-shadow: 0 0 0 3px rgba(13,59,56,0.14);
     }
+    input[readonly] {
+      background: #f1f5f9;
+      color: #64748b;
+      cursor: not-allowed;
+    }
 
-    .pct-wrap { position: relative; }
+    .pct-wrap, .dollar-wrap { position: relative; }
     .pct-wrap input { padding-right: 32px; }
     .pct-symbol {
       position: absolute; right: 12px; top: 50%;
+      transform: translateY(-50%);
+      color: #94a3b8; font-size: 14px; pointer-events: none;
+    }
+    .dollar-wrap input { padding-left: 26px; }
+    .dollar-symbol {
+      position: absolute; left: 12px; top: 50%;
       transform: translateY(-50%);
       color: #94a3b8; font-size: 14px; pointer-events: none;
     }
@@ -99,16 +152,17 @@
     .duration-pill.ok    { display: block; background: #e8f4f3; color: #0D3B38; border: 1px solid #b3d4d2; }
     .duration-pill.error { display: block; background: #fef2f2; color: #dc2626; border: 1px solid #fecaca; }
 
-    .divider { border: none; border-top: 1px solid #f1f5f9; margin: 24px 0; }
+    .divider { border: none; border-top: 1px solid #f1f5f9; margin: 22px 0; }
 
+    /* ── Buttons ──────────────────────────────────────────────────────── */
     .btn {
       display: block; width: 100%;
       padding: 13px; border: none; border-radius: 9px;
       font-size: 15px; font-weight: 600; cursor: pointer;
       transition: background 0.15s, transform 0.1s;
+      font-family: inherit;
     }
     .btn:active { transform: scale(0.985); }
-
     .btn-primary  { background: #0D3B38; color: #fff; }
     .btn-primary:hover { background: #0a2e2b; }
 
@@ -127,16 +181,41 @@
     .btn-copy:hover { background: #f1f5f9; }
     .btn-copy.copied { background: #f0fdf4; color: #16a34a; border-color: #bbf7d0; }
 
-    /* Results */
+    .btn-add {
+      background: #e8f4f3;
+      color: #0D3B38;
+      border: 1.5px dashed #b3d4d2;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 10px 16px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: background 0.15s;
+    }
+    .btn-add:hover { background: #d4e9e7; }
+
+    .btn-icon {
+      background: transparent;
+      border: none;
+      color: #94a3b8;
+      cursor: pointer;
+      font-size: 18px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      transition: background 0.12s, color 0.12s;
+    }
+    .btn-icon:hover { background: #fef2f2; color: #dc2626; }
+
+    /* ── Escalation result banner (existing) ──────────────────────────── */
     .results { display: none; }
     .results.show { display: block; }
-
     .result-banner {
       text-align: center;
       background: linear-gradient(135deg, #072422 0%, #0D3B38 60%, #165e59 100%);
       border-radius: 10px;
       padding: 28px 20px;
-      margin-bottom: 24px;
+      margin-bottom: 22px;
       color: #fff;
     }
     .result-banner .rlabel {
@@ -145,16 +224,11 @@
       opacity: 0.75; margin-bottom: 8px;
     }
     .result-banner .rvalue {
-      font-size: 56px; font-weight: 800; line-height: 1;
-      letter-spacing: -0.02em;
+      font-size: 56px; font-weight: 800; line-height: 1; letter-spacing: -0.02em;
     }
-    .result-banner .rdur {
-      margin-top: 10px; font-size: 13px; opacity: 0.7;
-    }
+    .result-banner .rdur { margin-top: 10px; font-size: 13px; opacity: 0.7; }
 
-    .formula-label {
-      font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 8px;
-    }
+    .formula-label { font-size: 13px; font-weight: 600; color: #374151; margin-bottom: 8px; }
 
     textarea {
       width: 100%; padding: 12px 14px;
@@ -170,86 +244,541 @@
       display: flex; gap: 10px; margin-top: 12px;
       align-items: center; flex-wrap: wrap;
     }
-
     .copied-confirm {
       font-size: 13px; font-weight: 500; color: #16a34a;
       display: none; align-items: center; gap: 4px;
     }
     .copied-confirm.show { display: flex; }
+
+    /* ── Settings: profit class grid ──────────────────────────────────── */
+    .profit-grid {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 10px;
+    }
+    .profit-grid .pgcell label { font-size: 12px; text-align: center; }
+    @media (max-width: 600px) {
+      .profit-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+
+    /* ── Radio group ──────────────────────────────────────────────────── */
+    .radio-row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .radio-opt {
+      flex: 1;
+      min-width: 180px;
+      padding: 12px 14px;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s;
+      background: #fff;
+    }
+    .radio-opt:hover { border-color: #b3d4d2; }
+    .radio-opt.selected { border-color: #0D3B38; background: #e8f4f3; }
+    .radio-opt input { display: none; }
+    .radio-opt .rlbl { font-weight: 600; color: #1e293b; font-size: 14px; }
+    .radio-opt .rval { font-size: 12px; color: #64748b; margin-top: 2px; }
+
+    /* ── Labor Task builder ───────────────────────────────────────────── */
+    .lt-block {
+      background: #f8fafc;
+      border: 1.5px solid #e2e8f0;
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    .lt-block.pm { background: #f0f9ff; border-color: #bae6fd; }
+    .lt-header {
+      display: flex; gap: 10px; align-items: center; margin-bottom: 12px;
+    }
+    .lt-header input[type="text"] { flex: 1; font-weight: 600; }
+
+    .lt-pm-toggle {
+      display: flex; align-items: center; gap: 6px;
+      margin-bottom: 10px; font-size: 13px; color: #374151;
+      cursor: pointer;
+    }
+    .lt-pm-toggle input { margin: 0; cursor: pointer; }
+
+    .subrow {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr auto;
+      gap: 10px;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .subrow input[type="text"] { font-size: 13px; }
+    .subrow .sr-label { font-size: 11px; color: #94a3b8; margin-bottom: 4px; font-weight: 500; }
+
+    .subrow-headers {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr auto;
+      gap: 10px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #94a3b8;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 6px;
+      padding: 0 4px;
+    }
+
+    /* ── Layout helpers ───────────────────────────────────────────────── */
+    .form-grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      column-gap: 16px;
+      row-gap: 22px;
+    }
+    .form-grid-2 .form-group { margin-bottom: 0; }
+    @media (max-width: 600px) {
+      .form-grid-2 { grid-template-columns: 1fr; row-gap: 18px; }
+    }
+
+    .btn-narrow { width: 33%; min-width: 180px; }
+
+    /* ── Results table ────────────────────────────────────────────────── */
+    .results-card { overflow-x: auto; }
+
+    .rtable {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .rtable thead th {
+      background: #0D3B38;
+      color: #fff;
+      padding: 10px 12px;
+      text-align: right;
+      font-weight: 600;
+      font-size: 12px;
+      letter-spacing: 0.03em;
+      white-space: nowrap;
+    }
+    .rtable thead th:first-child { text-align: left; }
+    .rtable tbody td {
+      padding: 9px 12px;
+      border-bottom: 1px solid #f1f5f9;
+      text-align: right;
+      white-space: nowrap;
+    }
+    .rtable tbody td:first-child { text-align: left; }
+    .rtable tr.task-group td {
+      background: #f1f5f9;
+      font-weight: 600;
+      color: #0f172a;
+    }
+    .rtable tr.subrow-row td {
+      background: #fff;
+      color: #1e293b;
+    }
+    .rtable tr.subrow-row.pm-row td {
+      background: #f0f9ff;
+    }
+    .rtable tr.total-row td {
+      background: #0D3B38;
+      color: #fff;
+      font-weight: 700;
+      border: none;
+    }
+
+    /* Highlight + bold + center the Hours column */
+    .rtable td.hours-cell { font-weight: 700; text-align: center; }
+    .rtable thead th:nth-child(2) { text-align: center; }
+    .rtable tbody tr.subrow-row td.hours-cell { background: #f0fdf4; color: #15803d; }
+    .rtable tr.total-row td.hours-cell { background: #15803d; color: #fff; }
+
+    .indicators {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-top: 18px;
+    }
+    .indicator {
+      padding: 14px 18px;
+      border-radius: 10px;
+      border: 1.5px solid;
+    }
+    .indicator.ok    { background: #f0fdf4; border-color: #bbf7d0; color: #15803d; }
+    .indicator.warn  { background: #fef2f2; border-color: #fecaca; color: #b91c1c; }
+    .indicator .ilabel { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; opacity: 0.7; }
+    .indicator .ivalue { font-size: 18px; font-weight: 700; margin-top: 4px; }
+    .indicator .isub   { font-size: 12px; margin-top: 2px; opacity: 0.85; }
+
+    @media (max-width: 600px) {
+      .indicators { grid-template-columns: 1fr; }
+      .subrow, .subrow-headers { grid-template-columns: 1fr 1fr 1fr auto; }
+    }
+
+    /* Saved status pill */
+    .saved-pill {
+      display: none;
+      align-items: center;
+      gap: 6px;
+      color: #15803d;
+      font-size: 13px;
+      font-weight: 500;
+      margin-left: 10px;
+    }
+    .saved-pill.show { display: inline-flex; }
   </style>
 </head>
 <body>
 <div class="container">
 
   <header>
-    <h1>Escalation Calculator</h1>
-    <p>For PennDOT Work Orders</p>
+    <h1>PennDOT Work Order Dashboard</h1>
+    <p>For Agreements &amp; Work Order Calculations</p>
   </header>
 
-  <!-- Input card -->
-  <div class="card">
-    <div class="section-title">Work Order Details</div>
+  <div class="warn-banner" id="warn-banner"></div>
 
-    <div class="form-group">
-      <label>NTP Date <span class="hint">anticipated month &amp; year</span></label>
-      <div class="input-row">
-        <select id="ntp-month"></select>
-        <input type="number" id="ntp-year" placeholder="Year" min="2000" max="2100" />
-      </div>
-    </div>
-
-    <div class="form-group">
-      <label>GFT Estimated Yearly Increase</label>
-      <div class="pct-wrap">
-        <input type="number" id="gft-pct" placeholder="e.g. 3.00" min="0" max="100" step="0.01" />
-        <span class="pct-symbol">%</span>
-      </div>
-    </div>
-
-    <div class="form-group">
-      <label>Anticipated Work Completion Date</label>
-      <div class="input-row">
-        <select id="end-month"></select>
-        <input type="number" id="end-year" placeholder="Year" min="2000" max="2100" />
-      </div>
-      <div class="duration-pill" id="dur-pill"></div>
-    </div>
-
-    <hr class="divider" />
-    <button class="btn btn-primary" onclick="calculate()">Calculate Escalation</button>
+  <div class="tabs">
+    <button class="tab active" data-tab="esc">Escalation Calculator</button>
+    <button class="tab" data-tab="lt">Labor Task Calculator</button>
+    <button class="tab" data-tab="settings">Settings</button>
   </div>
 
-  <!-- Results card -->
-  <div class="card results" id="results">
-    <div class="result-banner">
-      <div class="rlabel">Escalation Percentage</div>
-      <div class="rvalue" id="res-pct">—</div>
-      <div class="rdur" id="res-dur"></div>
+  <!-- ─────────────────────────── ESCALATION TAB ─────────────────────────── -->
+  <div class="panel active" id="panel-esc">
+    <div class="card card-narrow">
+      <div class="section-title">Work Order Details</div>
+
+      <div class="form-group">
+        <label>NTP Date <span class="hint">anticipated month &amp; year</span></label>
+        <div class="input-row">
+          <select id="ntp-month"></select>
+          <input type="number" id="ntp-year" placeholder="Year" min="2000" max="2100" />
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>GFT Estimated Yearly Increase</label>
+        <div class="pct-wrap">
+          <input type="number" id="gft-pct" placeholder="e.g. 3.00" min="0" max="100" step="0.01" />
+          <span class="pct-symbol">%</span>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Anticipated Work Completion Date</label>
+        <div class="input-row">
+          <select id="end-month"></select>
+          <input type="number" id="end-year" placeholder="Year" min="2000" max="2100" />
+        </div>
+        <div class="duration-pill" id="dur-pill"></div>
+      </div>
+
+      <hr class="divider" />
+      <button class="btn btn-primary" onclick="calculateEscalation()">Calculate Escalation</button>
     </div>
 
-    <div class="formula-label">Escalation Formula</div>
-    <textarea id="formula-out" readonly onclick="this.select()"></textarea>
+    <div class="card card-narrow results" id="esc-results">
+      <div class="result-banner">
+        <div class="rlabel">Escalation Percentage</div>
+        <div class="rvalue" id="res-pct">—</div>
+        <div class="rdur" id="res-dur"></div>
+      </div>
 
-    <div class="action-row">
-      <button class="btn btn-copy" id="copy-btn" onclick="copyFormula()">Copy Formula</button>
-      <button class="btn btn-ghost" onclick="resetForm()">Calculate Again</button>
-      <div class="copied-confirm" id="copied-ok">✓ Copied</div>
+      <div class="formula-label">Escalation Formula</div>
+      <textarea id="formula-out" readonly onclick="this.select()"></textarea>
+
+      <div class="action-row">
+        <button class="btn btn-copy" id="copy-btn" onclick="copyFormula()">Copy Formula</button>
+        <button class="btn btn-ghost" onclick="resetEscForm()">Calculate Again</button>
+        <div class="copied-confirm" id="copied-ok">✓ Copied</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────────────────────── LABOR TASK TAB ─────────────────────────── -->
+  <div class="panel" id="panel-lt">
+
+    <div class="card">
+      <div class="section-title">Target &amp; Rates</div>
+
+      <div class="form-grid-2">
+        <div class="form-group">
+          <label>Total GFT Part/Work Order Amount</label>
+          <div class="dollar-wrap">
+            <input type="text" inputmode="decimal" id="lt-target" placeholder="e.g. 300,000.00" />
+            <span class="dollar-symbol">$</span>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <div style="display:flex; align-items:center; gap:14px; margin-bottom:7px; flex-wrap:wrap;">
+            <div style="font-size:13px; font-weight:600; color:#374151;">Escalation Rate</div>
+            <label style="display:flex; align-items:center; gap:6px; font-weight:400; font-size:12px; color:#64748b; cursor:pointer; margin:0;">
+              <input type="checkbox" id="lt-esc-link" style="margin:0; width:14px; height:14px; cursor:pointer;" />
+              Use Escalation Calculator result
+            </label>
+          </div>
+          <div class="pct-wrap">
+            <input type="number" id="lt-esc" placeholder="e.g. 1.02" min="0" max="100" step="0.01" />
+            <span class="pct-symbol">%</span>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label>Overhead Rate</label>
+          <select id="lt-oh"></select>
+        </div>
+
+        <div class="form-group">
+          <label>Consultant Profit Class</label>
+          <select id="lt-profit"></select>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="section-title">Labor Tasks</div>
+      <div id="lt-tasks"></div>
+      <button class="btn-add" onclick="addLaborTask()">+ Add Labor Task</button>
+
+      <hr class="divider" />
+      <button class="btn btn-primary btn-narrow" onclick="calculateLabor()">Calculate Hours</button>
+    </div>
+
+    <div class="card results-card results" id="lt-results">
+      <div class="section-title">Results</div>
+      <table class="rtable">
+        <thead>
+          <tr>
+            <th>Task / Detail Task</th>
+            <th>Hours</th>
+            <th>Average Rate</th>
+            <th>Total Payroll</th>
+            <th>Escalation</th>
+            <th>Overhead</th>
+            <th>Profit</th>
+            <th>Total Task Cost</th>
+          </tr>
+        </thead>
+        <tbody id="lt-tbody"></tbody>
+      </table>
+
+      <div class="indicators">
+        <div class="indicator" id="ind-target">
+          <div class="ilabel">Target vs. Actual</div>
+          <div class="ivalue" id="ind-target-val">—</div>
+          <div class="isub"  id="ind-target-sub">—</div>
+        </div>
+        <div class="indicator" id="ind-pm">
+          <div class="ilabel">PM Hour Check</div>
+          <div class="ivalue" id="ind-pm-val">—</div>
+          <div class="isub"  id="ind-pm-sub">—</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─────────────────────────── SETTINGS TAB ─────────────────────────── -->
+  <div class="panel" id="panel-settings">
+    <div class="card card-narrow">
+      <div class="section-title">Overhead Rates</div>
+
+      <div class="form-group">
+        <label>Office Overhead Rate</label>
+        <div class="pct-wrap">
+          <input type="number" id="s-office-oh" placeholder="e.g. 145.00" min="0" step="0.01" />
+          <span class="pct-symbol">%</span>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Field Overhead Rate</label>
+        <div class="pct-wrap">
+          <input type="number" id="s-field-oh" placeholder="e.g. 165.00" min="0" step="0.01" />
+          <span class="pct-symbol">%</span>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Overhead Rates Expiration Date</label>
+        <input type="date" id="s-oh-exp-date" />
+      </div>
+    </div>
+
+    <div class="card card-narrow">
+      <div class="section-title">Consultant Profit Class</div>
+
+      <div class="profit-grid">
+        <div class="pgcell">
+          <label>Class A</label>
+          <div class="pct-wrap"><input type="number" id="s-profit-a" min="0" step="0.01" /><span class="pct-symbol">%</span></div>
+        </div>
+        <div class="pgcell">
+          <label>Class B</label>
+          <div class="pct-wrap"><input type="number" id="s-profit-b" min="0" step="0.01" /><span class="pct-symbol">%</span></div>
+        </div>
+        <div class="pgcell">
+          <label>Class C</label>
+          <div class="pct-wrap"><input type="number" id="s-profit-c" min="0" step="0.01" /><span class="pct-symbol">%</span></div>
+        </div>
+        <div class="pgcell">
+          <label>Class D</label>
+          <div class="pct-wrap"><input type="number" id="s-profit-d" min="0" step="0.01" /><span class="pct-symbol">%</span></div>
+        </div>
+        <div class="pgcell">
+          <label>Class E</label>
+          <div class="pct-wrap"><input type="number" id="s-profit-e" min="0" step="0.01" /><span class="pct-symbol">%</span></div>
+        </div>
+      </div>
+
+      <div class="form-group" style="margin-top: 18px;">
+        <label>Profit Class Expiration Date</label>
+        <input type="date" id="s-profit-exp-date" />
+      </div>
+    </div>
+
+    <div class="card card-narrow">
+      <div style="display:flex; align-items:center;">
+        <button class="btn btn-primary" style="flex:1; max-width:240px;" onclick="saveSettings()">Save Settings</button>
+        <span class="saved-pill" id="saved-pill">✓ Saved</span>
+      </div>
     </div>
   </div>
 
 </div>
+
 <script>
+'use strict';
+
+// ╔══════════════════════════════════════════════════════════════════════╗
+// ║ CONSTANTS & STATE                                                    ║
+// ╚══════════════════════════════════════════════════════════════════════╝
+
 const FULL  = ['January','February','March','April','May','June','July','August','September','October','November','December'];
 const ABBR  = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
-// Populate dropdowns
-['ntp-month','end-month'].forEach(id => {
+const KEY = {
+  officeOh:    'pd_office_oh',
+  fieldOh:     'pd_field_oh',
+  ohExpDate:   'pd_oh_exp_date',
+  profitA:     'pd_profit_a',
+  profitB:     'pd_profit_b',
+  profitC:     'pd_profit_c',
+  profitD:     'pd_profit_d',
+  profitE:     'pd_profit_e',
+  profExpDate: 'pd_prof_exp_date',
+  escRate:     'pd_esc_rate'
+};
+
+// Format YYYY-MM-DD as "January 21, 2026"
+function formatDate(dateStr) {
+  if (!dateStr) return '';
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return dateStr;
+  const y = +parts[0], m = +parts[1] - 1, d = +parts[2];
+  if (isNaN(y) || isNaN(m) || isNaN(d)) return dateStr;
+  return `${FULL[m]} ${d}, ${y}`;
+}
+
+// Parse YYYY-MM-DD into a Date (local time, midnight)
+function parseDate(dateStr) {
+  if (!dateStr) return null;
+  const parts = dateStr.split('-');
+  if (parts.length !== 3) return null;
+  return new Date(+parts[0], +parts[1] - 1, +parts[2]);
+}
+
+function getLS(k) { return localStorage.getItem(k); }
+function setLS(k, v) { localStorage.setItem(k, v); }
+
+// Populate all month dropdowns
+function fillMonthSelect(id) {
   const sel = document.getElementById(id);
+  if (!sel) return;
   FULL.forEach((name, i) => {
     const o = document.createElement('option');
     o.value = i; o.textContent = name; sel.appendChild(o);
   });
+}
+['ntp-month','end-month'].forEach(fillMonthSelect);
+
+// ╔══════════════════════════════════════════════════════════════════════╗
+// ║ TAB SWITCHING                                                        ║
+// ╚══════════════════════════════════════════════════════════════════════╝
+document.querySelectorAll('.tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+    btn.classList.add('active');
+    document.getElementById('panel-' + btn.dataset.tab).classList.add('active');
+    if (btn.dataset.tab === 'lt') refreshLaborTabFromSettings();
+  });
 });
+
+// ╔══════════════════════════════════════════════════════════════════════╗
+// ║ EXPIRATION WARNING BANNER                                            ║
+// ╚══════════════════════════════════════════════════════════════════════╝
+function checkExpirations() {
+  const banner = document.getElementById('warn-banner');
+  const today  = new Date();
+  today.setHours(0, 0, 0, 0);
+  const warnings = [];
+
+  const ohExp = parseDate(getLS(KEY.ohExpDate));
+  if (ohExp && ohExp < today) {
+    warnings.push(`Overhead rates expired on ${formatDate(getLS(KEY.ohExpDate))}`);
+  }
+  const profExp = parseDate(getLS(KEY.profExpDate));
+  if (profExp && profExp < today) {
+    warnings.push(`Consultant Profit Class rates expired on ${formatDate(getLS(KEY.profExpDate))}`);
+  }
+
+  if (warnings.length) {
+    banner.innerHTML = '<strong>⚠ Attention:</strong> ' + warnings.join(' &nbsp;·&nbsp; ') + '. Please update in Settings.';
+    banner.classList.add('show');
+  } else {
+    banner.classList.remove('show');
+  }
+}
+
+// ╔══════════════════════════════════════════════════════════════════════╗
+// ║ SETTINGS TAB                                                         ║
+// ╚══════════════════════════════════════════════════════════════════════╝
+function loadSettings() {
+  const setVal = (id, key) => {
+    const v = getLS(key);
+    if (v !== null && v !== '') document.getElementById(id).value = v;
+  };
+  setVal('s-office-oh',       KEY.officeOh);
+  setVal('s-field-oh',        KEY.fieldOh);
+  setVal('s-oh-exp-date',     KEY.ohExpDate);
+  setVal('s-profit-a',        KEY.profitA);
+  setVal('s-profit-b',        KEY.profitB);
+  setVal('s-profit-c',        KEY.profitC);
+  setVal('s-profit-d',        KEY.profitD);
+  setVal('s-profit-e',        KEY.profitE);
+  setVal('s-profit-exp-date', KEY.profExpDate);
+}
+
+function saveSettings() {
+  const get = id => document.getElementById(id).value;
+  setLS(KEY.officeOh,    get('s-office-oh'));
+  setLS(KEY.fieldOh,     get('s-field-oh'));
+  setLS(KEY.ohExpDate,   get('s-oh-exp-date'));
+  setLS(KEY.profitA,     get('s-profit-a'));
+  setLS(KEY.profitB,     get('s-profit-b'));
+  setLS(KEY.profitC,     get('s-profit-c'));
+  setLS(KEY.profitD,     get('s-profit-d'));
+  setLS(KEY.profitE,     get('s-profit-e'));
+  setLS(KEY.profExpDate, get('s-profit-exp-date'));
+
+  const pill = document.getElementById('saved-pill');
+  pill.classList.add('show');
+  setTimeout(() => pill.classList.remove('show'), 2200);
+
+  checkExpirations();
+  refreshLaborTabFromSettings();
+}
+
+// ╔══════════════════════════════════════════════════════════════════════╗
+// ║ ESCALATION CALCULATOR (existing logic)                               ║
+// ╚══════════════════════════════════════════════════════════════════════╝
 
 // Default to current month/year
 const now = new Date();
@@ -270,7 +799,6 @@ function getDuration() {
   const em = +document.getElementById('end-month').value;
   const ey = +document.getElementById('end-year').value;
   if (isNaN(nm)||isNaN(ny)||isNaN(em)||isNaN(ey)) return null;
-  // Inclusive of both start and end months
   return (ey - ny) * 12 + (em - nm) + 1;
 }
 
@@ -287,7 +815,6 @@ function refreshDuration() {
   }
 }
 
-// ── Core helpers ──────────────────────────────────────────────────────────
 function addMonths(month, year, n) {
   const t = year * 12 + month + n;
   return { month: t % 12, year: Math.floor(t / 12) };
@@ -296,20 +823,14 @@ function addMonths(month, year, n) {
 function buildSegments(ntpMonth, ntpYear, gftPct, duration) {
   const segs = [];
   let cm = ntpMonth, cy = ntpYear, rate = 1.0, rem = duration;
-
   while (rem > 0) {
-    // How many months until (but not including) the next April
     const toApril = cm < 3 ? (3 - cm) : (15 - cm);
     const n = Math.min(toApril, rem);
-
-    const ep = addMonths(cm, cy, n - 1);   // end of this segment (inclusive)
+    const ep = addMonths(cm, cy, n - 1);
     segs.push({ months: n, sm: cm, sy: cy, em: ep.month, ey: ep.year, rate });
-
     rem -= n;
     const next = addMonths(cm, cy, n);
     cm = next.month; cy = next.year;
-
-    // Arrived at April → apply compounded increase for next segment
     if (cm === 3 && rem > 0) rate = rate * (1 + gftPct / 100);
   }
   return segs;
@@ -318,7 +839,6 @@ function buildSegments(ntpMonth, ntpYear, gftPct, duration) {
 function buildFormula(segs, ws, avgRate, esc, dur, ntpMonth, ntpYear, gftPct) {
   const firstAprilYear = ntpMonth < 3 ? ntpYear : ntpYear + 1;
   const preamble = `Escalation: NTP anticipated in ${FULL[ntpMonth]}. GFT estimates a ${gftPct}% full yearly increase in April ${firstAprilYear}. This Work Order is expected to be completed within ${dur} months from NTP. Therefore: `;
-
   const parts = segs.map(s => {
     const start   = `${ABBR[s.sm]} ${s.sy}`;
     const end     = `${ABBR[s.em]} ${s.ey}`;
@@ -326,30 +846,24 @@ function buildFormula(segs, ws, avgRate, esc, dur, ntpMonth, ntpYear, gftPct) {
     const prod    = (s.months * s.rate).toFixed(4);
     return `${s.months} months (${start}-${end}) @ ${rateStr} = ${prod}`;
   });
-  const wsStr  = ws.toFixed(4);
-  const arStr  = avgRate.toFixed(4);
-  const escStr = esc.toFixed(4);
+  const wsStr = ws.toFixed(4), arStr = avgRate.toFixed(4), escStr = esc.toFixed(4);
   return preamble + `${parts.join(', and ')}, total = ${wsStr} / ${dur} months = ${arStr} = (${arStr} - 1)*(100) = ${escStr}%`;
 }
 
-// ── Calculate ─────────────────────────────────────────────────────────────
-function calculate() {
+function calculateEscalation() {
   const ntpMonth = +document.getElementById('ntp-month').value;
   const ntpYear  = +document.getElementById('ntp-year').value;
   const gftPct   = +document.getElementById('gft-pct').value;
   const duration = getDuration();
 
   if (!ntpYear || isNaN(gftPct) || document.getElementById('gft-pct').value === '') {
-    alert('Please fill in all fields before calculating.');
-    return;
+    alert('Please fill in all fields before calculating.'); return;
   }
   if (duration === null || duration < 1) {
-    alert('End date must be on or after the NTP date.');
-    return;
+    alert('End date must be on or after the NTP date.'); return;
   }
   if (gftPct < 0) {
-    alert('GFT percentage must be 0 or greater.');
-    return;
+    alert('GFT percentage must be 0 or greater.'); return;
   }
 
   const segs    = buildSegments(ntpMonth, ntpYear, gftPct, duration);
@@ -361,12 +875,14 @@ function calculate() {
   document.getElementById('res-dur').textContent  = `Over ${duration} month${duration !== 1 ? 's' : ''} · ${gftPct}% annual GFT increase`;
   document.getElementById('formula-out').value    = buildFormula(segs, ws, avgRate, esc, duration, ntpMonth, ntpYear, gftPct);
 
-  const results = document.getElementById('results');
-  results.className = 'card results show';
+  const results = document.getElementById('esc-results');
+  results.className = 'card card-narrow results show';
   results.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  // Save for cross-tab sharing within this session only
+  sessionStorage.setItem(KEY.escRate, esc.toFixed(4));
 }
 
-// ── Copy & Reset ──────────────────────────────────────────────────────────
 function copyFormula() {
   const text = document.getElementById('formula-out').value;
   navigator.clipboard.writeText(text).then(() => {
@@ -383,8 +899,8 @@ function copyFormula() {
   });
 }
 
-function resetForm() {
-  document.getElementById('results').className = 'card results';
+function resetEscForm() {
+  document.getElementById('esc-results').className = 'card card-narrow results';
   document.getElementById('gft-pct').value = '';
   document.getElementById('copy-btn').textContent = 'Copy Formula';
   document.getElementById('copy-btn').className   = 'btn btn-copy';
@@ -393,8 +909,523 @@ function resetForm() {
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
-// Init duration badge
 refreshDuration();
+
+// ╔══════════════════════════════════════════════════════════════════════╗
+// ║ LABOR TASK CALCULATOR                                                ║
+// ╚══════════════════════════════════════════════════════════════════════╝
+
+// Populate Overhead Rate dropdown (with empty placeholder)
+(function() {
+  const sel = document.getElementById('lt-oh');
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = '— Select an overhead rate —';
+  placeholder.disabled = true;
+  placeholder.selected = true;
+  sel.appendChild(placeholder);
+  [['office','Office Overhead'], ['field','Field Overhead']].forEach(([val, label]) => {
+    const o = document.createElement('option');
+    o.value = val; o.textContent = label;
+    sel.appendChild(o);
+  });
+})();
+
+// Profit class dropdown (with empty placeholder so nothing is selected by default)
+(function() {
+  const sel = document.getElementById('lt-profit');
+  const placeholder = document.createElement('option');
+  placeholder.value = '';
+  placeholder.textContent = '— Select a class —';
+  placeholder.disabled = true;
+  placeholder.selected = true;
+  sel.appendChild(placeholder);
+  ['A','B','C','D','E'].forEach(letter => {
+    const o = document.createElement('option');
+    o.value = letter; o.textContent = 'Class ' + letter;
+    sel.appendChild(o);
+  });
+})();
+
+// Comma formatting for the Total GFT input — show commas when not focused
+(function() {
+  const inp = document.getElementById('lt-target');
+  inp.addEventListener('focus', () => {
+    inp.value = inp.value.replace(/,/g, '');
+  });
+  inp.addEventListener('blur', () => {
+    const v = parseFloat(inp.value.replace(/,/g, ''));
+    if (!isNaN(v) && v >= 0) {
+      inp.value = v.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+  });
+})();
+
+// Refresh values pulled from settings whenever Labor Task tab opens or settings save
+function refreshLaborTabFromSettings() {
+  // Update Overhead Rate dropdown labels with stored values
+  const ohSel = document.getElementById('lt-oh');
+  Array.from(ohSel.options).forEach(opt => {
+    if (!opt.value) return; // skip placeholder
+    const baseLabel = opt.value === 'office' ? 'Office Overhead' : 'Field Overhead';
+    const v = getLS(opt.value === 'office' ? KEY.officeOh : KEY.fieldOh);
+    opt.textContent = baseLabel + (v ? ' (' + v + '%)' : ' — not set');
+  });
+
+  // Update profit class dropdown labels with stored values (skip placeholder)
+  const profitMap = { A: KEY.profitA, B: KEY.profitB, C: KEY.profitC, D: KEY.profitD, E: KEY.profitE };
+  const sel = document.getElementById('lt-profit');
+  Array.from(sel.options).forEach(opt => {
+    if (!opt.value) return; // skip the "— Select a class —" placeholder
+    const v = getLS(profitMap[opt.value]);
+    opt.textContent = 'Class ' + opt.value + (v ? ' (' + v + '%)' : ' — not set');
+  });
+
+  // If the "Use Escalation Calculator result" box is checked, refresh from session
+  const escInput = document.getElementById('lt-esc');
+  const linkBox  = document.getElementById('lt-esc-link');
+  if (linkBox && linkBox.checked) {
+    const stored = sessionStorage.getItem(KEY.escRate);
+    if (stored !== null && stored !== '') {
+      escInput.value = parseFloat(stored).toFixed(2);
+    }
+  }
+}
+
+// Checkbox toggle: link/unlink Escalation Rate from the Escalation Calculator
+document.getElementById('lt-esc-link').addEventListener('change', (e) => {
+  const input = document.getElementById('lt-esc');
+  if (e.target.checked) {
+    const stored = sessionStorage.getItem(KEY.escRate);
+    if (stored === null || stored === '') {
+      alert('No Escalation Rate available yet. Please run the Escalation Calculator first.');
+      e.target.checked = false;
+      return;
+    }
+    input.value = parseFloat(stored).toFixed(2);
+    input.readOnly = true;
+  } else {
+    input.readOnly = false;
+    input.value = '';
+    input.focus();
+  }
+});
+
+// ── Labor Task builder ────────────────────────────────────────────────
+let taskCounter = 0;
+let cidxCounter = 0;
+const classifications = new Map(); // cidx → { name, rate }
+
+function addLaborTask(name = '', isPM = false) {
+  taskCounter++;
+  const tid = 'task-' + taskCounter;
+  const wrap = document.createElement('div');
+  wrap.className = 'lt-block' + (isPM ? ' pm' : '');
+  wrap.id = tid;
+  wrap.innerHTML = `
+    <div class="lt-header">
+      <input type="text" class="lt-name" placeholder="Labor Task name (e.g. Project Management/Administration)" value="${escapeAttr(name)}" />
+      <button class="btn-icon" title="Remove this labor task" onclick="this.closest('.lt-block').remove();">✕</button>
+    </div>
+    <label class="lt-pm-toggle">
+      <input type="checkbox" class="lt-ispm" ${isPM ? 'checked' : ''} onchange="toggleTaskPM(this)" />
+      <span>Apply 5% Project Management hour cap to this task</span>
+    </label>
+    <div class="subrow-headers">
+      <div>Rate Classification</div>
+      <div>Average Rate</div>
+      <div>Hours</div>
+      <div></div>
+    </div>
+    <div class="subrows"></div>
+    <button class="btn-add" style="margin-top: 6px;" onclick="addClassification()">+ Add Rate Classification</button>
+  `;
+  document.getElementById('lt-tasks').appendChild(wrap);
+
+  // Mirror all existing classifications into this new task
+  classifications.forEach((cls, cidx) => {
+    addSubrowDOM(tid, cidx, cls.name, cls.rate, '', isPM);
+  });
+
+  // If this is the first task ever AND no classifications exist yet, seed one
+  if (classifications.size === 0) {
+    addClassification();
+  }
+}
+
+function toggleTaskPM(checkbox) {
+  const block = checkbox.closest('.lt-block');
+  block.classList.toggle('pm', checkbox.checked);
+  // Make all hour inputs in this task read-only when PM is on
+  block.querySelectorAll('.sr-hours').forEach(inp => {
+    inp.readOnly = checkbox.checked;
+    if (checkbox.checked) inp.value = '';
+    inp.placeholder = checkbox.checked ? 'auto (PM)' : 'optional';
+  });
+}
+
+// Add a new rate classification — automatically appears in every labor task
+function addClassification() {
+  const cidx = cidxCounter++;
+  classifications.set(cidx, { name: '', rate: '' });
+  document.querySelectorAll('#lt-tasks .lt-block').forEach(block => {
+    const isPM = block.querySelector('.lt-ispm').checked;
+    addSubrowDOM(block.id, cidx, '', '', '', isPM);
+  });
+}
+
+// Render the sub-row DOM for a given task + classification index
+function addSubrowDOM(tid, cidx, name, rate, hours, isPM) {
+  const block = document.getElementById(tid);
+  if (!block) return;
+  const row = document.createElement('div');
+  row.className = 'subrow';
+  row.dataset.cidx = cidx;
+  row.innerHTML = `
+    <input type="text" class="sr-name" placeholder="e.g. Principal, Project Manager, Sr. Project Manager" value="${escapeAttr(name)}" />
+    <div class="dollar-wrap"><input type="text" inputmode="decimal" class="sr-rate" placeholder="0.00" value="${rate}" /><span class="dollar-symbol">$</span></div>
+    <input type="number" class="sr-hours" placeholder="${isPM ? 'auto (PM)' : 'optional'}" min="0" step="1" value="${hours}" ${isPM ? 'readonly' : ''} />
+    <button class="btn-icon" title="Remove this rate classification from this task only" onclick="this.closest('.subrow').remove()">✕</button>
+  `;
+  block.querySelector('.subrows').appendChild(row);
+
+  // Sync name + rate across every task whenever the user types
+  row.querySelector('.sr-name').addEventListener('input', e => syncClassField(cidx, 'name', e.target.value));
+  row.querySelector('.sr-rate').addEventListener('input', e => syncClassField(cidx, 'rate', e.target.value));
+}
+
+function syncClassField(cidx, key, value) {
+  const cls = classifications.get(cidx);
+  if (cls) cls[key] = value;
+  const selector = key === 'name' ? '.sr-name' : '.sr-rate';
+  document.querySelectorAll(`#lt-tasks .subrow[data-cidx="${cidx}"] ${selector}`).forEach(inp => {
+    if (inp.value !== value) inp.value = value;
+  });
+}
+
+// Format any .sr-rate input to two decimal places when the user leaves the field
+document.getElementById('lt-tasks').addEventListener('focusout', e => {
+  if (!e.target.classList.contains('sr-rate')) return;
+  const raw = e.target.value.replace(/,/g, '');
+  const v = parseFloat(raw);
+  if (!isNaN(v) && v >= 0) {
+    const formatted = v.toFixed(2);
+    e.target.value = formatted;
+    const row = e.target.closest('.subrow');
+    if (row && row.dataset.cidx != null) {
+      syncClassField(+row.dataset.cidx, 'rate', formatted);
+    }
+  }
+});
+
+function escapeAttr(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ── Solver ────────────────────────────────────────────────────────────
+
+// Distribute blank-row hours (whole numbers, possibly unequal) such that
+// Σ (hours_i × rate_i) is as close to `target` as possible.
+// Starts everyone at floor(equal-share), then greedily adds +1 hour to whichever
+// row improves the absolute distance to target the most. Stops when no +1
+// improves the result.
+function distributeBlankHours(blankRows, target) {
+  if (blankRows.length === 0) return [];
+  const R = blankRows.reduce((s, r) => s + r.rate, 0);
+  if (R === 0 || target <= 0) return blankRows.map(() => 0);
+
+  const ideal = target / R;
+  const base  = Math.max(0, Math.floor(ideal));
+  const alloc = blankRows.map(() => base);
+  let currentSum = base * R;
+  let bestDist   = Math.abs(target - currentSum);
+
+  let safety = blankRows.length * 200;
+  while (safety-- > 0) {
+    let bestIdx = -1;
+    let bestNewDist = bestDist;
+    for (let i = 0; i < blankRows.length; i++) {
+      const newDist = Math.abs(target - (currentSum + blankRows[i].rate));
+      if (newDist < bestNewDist) {
+        bestNewDist = newDist;
+        bestIdx = i;
+      }
+    }
+    if (bestIdx < 0) break;
+    alloc[bestIdx]++;
+    currentSum += blankRows[bestIdx].rate;
+    bestDist = bestNewDist;
+  }
+  return alloc;
+}
+
+function calculateLabor() {
+  // ── Gather + validate required selections ────────────────────────────
+  const missing = [];
+
+  // Target
+  const targetRaw = document.getElementById('lt-target').value.replace(/,/g, '');
+  const target    = parseFloat(targetRaw);
+  if (!targetRaw || isNaN(target) || target <= 0) missing.push('• Total GFT Part/Work Order Amount');
+
+  // Overhead rate
+  const ohChoice = document.getElementById('lt-oh').value;
+  if (!ohChoice) missing.push('• Overhead Rate');
+
+  // Profit class
+  const profitLetter = document.getElementById('lt-profit').value;
+  if (!profitLetter) missing.push('• Consultant Profit Class');
+
+  // Escalation rate
+  const escRaw = document.getElementById('lt-esc').value.trim();
+  if (escRaw === '' || isNaN(parseFloat(escRaw))) missing.push('• Escalation Rate');
+
+  if (missing.length) {
+    alert('Please complete the following before calculating:\n\n' + missing.join('\n'));
+    return;
+  }
+
+  // ── Resolve the actual stored values ─────────────────────────────────
+  const ohVal    = +getLS(ohChoice === 'office' ? KEY.officeOh : KEY.fieldOh);
+  if (!ohVal || isNaN(ohVal)) {
+    alert(`The ${ohChoice === 'office' ? 'Office' : 'Field'} Overhead Rate hasn't been set. Please enter it in the Settings tab.`);
+    return;
+  }
+  const oh = ohVal / 100;
+
+  const profitMap = { A: KEY.profitA, B: KEY.profitB, C: KEY.profitC, D: KEY.profitD, E: KEY.profitE };
+  const profitVal = +getLS(profitMap[profitLetter]);
+  if (!profitVal || isNaN(profitVal)) {
+    alert(`Profit Class ${profitLetter} hasn't been set. Please enter it in the Settings tab.`);
+    return;
+  }
+  const profit = profitVal / 100;
+
+  const esc = parseFloat(escRaw) / 100;
+
+  // K = (1 + oh) × (1 + esc + profit)
+  const K = (1 + oh) * (1 + esc + profit);
+
+  // Gather tasks
+  const tasks = [];
+  document.querySelectorAll('#lt-tasks .lt-block').forEach(block => {
+    const name = block.querySelector('.lt-name').value.trim() || 'Unnamed Labor Task';
+    const isPM = block.querySelector('.lt-ispm').checked;
+    const subrows = [];
+    block.querySelectorAll('.subrow').forEach(row => {
+      const subname = row.querySelector('.sr-name').value.trim() || 'Unnamed';
+      const rate    = parseFloat(row.querySelector('.sr-rate').value.replace(/,/g, '')) || 0;
+      const hoursIn = row.querySelector('.sr-hours').value;
+      const hours   = hoursIn === '' ? null : Math.round(+hoursIn);
+      if (rate > 0) subrows.push({ name: subname, rate, hours, isPM });
+    });
+    if (subrows.length) tasks.push({ name, isPM, subrows });
+  });
+
+  if (!tasks.length) {
+    alert('Please add at least one labor task with a rate classification.');
+    return;
+  }
+
+  // Flatten into rows for the solver
+  const allRows = [];
+  tasks.forEach(t => t.subrows.forEach(s => allRows.push({ ...s, parentName: t.name })));
+
+  // Partition
+  const pmRows    = allRows.filter(r => r.isPM);
+  const fixedRows = allRows.filter(r => !r.isPM && r.hours !== null && !isNaN(r.hours));
+  const blankRows = allRows.filter(r => !r.isPM && (r.hours === null || isNaN(r.hours)));
+
+  const F_$ = fixedRows.reduce((s, r) => s + r.hours * r.rate * K, 0);
+  const F_h = fixedRows.reduce((s, r) => s + r.hours, 0);
+  const R_PM    = pmRows.reduce((s, r) => s + r.rate, 0);
+  const R_blank = blankRows.reduce((s, r) => s + r.rate, 0);
+  const N_PM    = pmRows.length;
+  const N_blank = blankRows.length;
+
+  let a = 0;              // hours per PM row (all PM rows get the same)
+  let blankAlloc = [];    // hours per blank non-PM row (can vary)
+  let warnings = [];
+
+  const remaining = (target - F_$) / K;
+
+  if (remaining <= 0 && (N_PM > 0 || N_blank > 0)) {
+    warnings.push('Your entered hours already meet or exceed the target. Reduce or clear some values.');
+  }
+
+  if (N_PM > 0 && N_blank > 0) {
+    // First estimate using equal-distribution math to set PM
+    const alpha = F_h * R_PM / (19 * N_PM);
+    const beta  = N_blank * R_PM / (19 * N_PM) + R_blank;
+    const b_est = (remaining - alpha) / beta;
+    const a_est = (F_h + N_blank * b_est) / (19 * N_PM);
+    a = Math.max(0, Math.floor(a_est));
+    // Now distribute the rest among blanks (potentially unequally)
+    let remBlanks = remaining - a * R_PM;
+    blankAlloc = distributeBlankHours(blankRows, remBlanks);
+
+    // If rounding pushed PM above 5%, step a down until ≤ 5%
+    let totalHrs = F_h + N_PM * a + blankAlloc.reduce((s, h) => s + h, 0);
+    let safety = 200;
+    while (a > 0 && totalHrs > 0 && (N_PM * a) / totalHrs > 0.05 && safety-- > 0) {
+      a -= 1;
+      remBlanks = remaining - a * R_PM;
+      blankAlloc = distributeBlankHours(blankRows, remBlanks);
+      totalHrs = F_h + N_PM * a + blankAlloc.reduce((s, h) => s + h, 0);
+    }
+  } else if (N_PM > 0 && N_blank === 0) {
+    a = Math.max(0, Math.floor(F_h / (19 * N_PM)));
+  } else if (N_blank > 0 && N_PM === 0) {
+    blankAlloc = distributeBlankHours(blankRows, remaining);
+  }
+
+  // Map each blank row to its allocated hours (preserve order)
+  const blankHoursMap = new Map();
+  blankRows.forEach((r, i) => blankHoursMap.set(r, blankAlloc[i] || 0));
+
+  // Assemble final row hours
+  const finalRows = allRows.map(r => {
+    if (r.isPM) return { ...r, hours: a };
+    if (r.hours !== null && !isNaN(r.hours)) return r;
+    return { ...r, hours: blankHoursMap.get(r) || 0 };
+  });
+
+  renderLaborResults(tasks, finalRows, target, oh, esc, profit, K, warnings);
+}
+
+function renderLaborResults(tasks, finalRows, target, oh, esc, profit, K, warnings) {
+  const tbody = document.getElementById('lt-tbody');
+  tbody.innerHTML = '';
+
+  let grandHours = 0, grandPayroll = 0, grandEsc = 0, grandOh = 0, grandProfit = 0, grandTotal = 0;
+  let pmHours = 0;
+
+  // Map rows back to task groups
+  let taskIdx = 0;
+  tasks.forEach(task => {
+    taskIdx++;
+    // Task group header
+    const grp = document.createElement('tr');
+    grp.className = 'task-group';
+    grp.innerHTML = `<td>${taskIdx} — ${escapeHtml(task.name)}</td><td colspan="7"></td>`;
+    tbody.appendChild(grp);
+
+    let subIdx = 0;
+    task.subrows.forEach(s => {
+      subIdx++;
+      // Find matching row in finalRows by reference identity check (parentName + name + rate)
+      const fr = finalRows.find(r =>
+        r.parentName === task.name && r.name === s.name && r.rate === s.rate && r.isPM === s.isPM
+      );
+      const hours   = fr ? fr.hours : 0;
+      const payroll = hours * s.rate;
+      const ohAmt   = payroll * oh;
+      const escAmt  = (payroll + ohAmt) * esc;
+      const proAmt  = (payroll + ohAmt) * profit;
+      const totCost = payroll + ohAmt + escAmt + proAmt;
+
+      grandHours   += hours;
+      grandPayroll += payroll;
+      grandOh      += ohAmt;
+      grandEsc     += escAmt;
+      grandProfit  += proAmt;
+      grandTotal   += totCost;
+      if (s.isPM) pmHours += hours;
+
+      const tr = document.createElement('tr');
+      tr.className = 'subrow-row' + (s.isPM ? ' pm-row' : '');
+      tr.innerHTML = `
+        <td style="padding-left: 28px;">${taskIdx}.${subIdx} ${escapeHtml(s.name)}</td>
+        <td class="hours-cell">${fmtNum(hours, 0)}</td>
+        <td>${fmtUSD(s.rate)}</td>
+        <td>${fmtUSD(payroll)}</td>
+        <td>${fmtUSD(escAmt)}</td>
+        <td>${fmtUSD(ohAmt)}</td>
+        <td>${fmtUSD(proAmt)}</td>
+        <td>${fmtUSD(totCost)}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+  });
+
+  // Total row
+  const blendedAvg = grandHours > 0 ? grandPayroll / grandHours : 0;
+  const totalTr = document.createElement('tr');
+  totalTr.className = 'total-row';
+  totalTr.innerHTML = `
+    <td>Labor Task Total</td>
+    <td class="hours-cell">${fmtNum(grandHours, 0)}</td>
+    <td>${fmtUSD(blendedAvg)}</td>
+    <td>${fmtUSD(grandPayroll)}</td>
+    <td>${fmtUSD(grandEsc)}</td>
+    <td>${fmtUSD(grandOh)}</td>
+    <td>${fmtUSD(grandProfit)}</td>
+    <td>${fmtUSD(grandTotal)}</td>
+  `;
+  tbody.appendChild(totalTr);
+
+  // Target indicator — always uses the "ok" (green) styling
+  const diff = grandTotal - target;
+  const tgtEl   = document.getElementById('ind-target');
+  const tgtVal  = document.getElementById('ind-target-val');
+  const tgtSub  = document.getElementById('ind-target-sub');
+  const within  = Math.abs(diff) <= 1; // within $1 = exact
+  tgtEl.className = 'indicator ok';
+  tgtVal.textContent = fmtUSD(target) + ' / ' + fmtUSD(grandTotal);
+  tgtSub.textContent = (within ? '✓ ' : '') + (diff >= 0 ? '+' : '') + fmtUSD(diff) + ' (' + (target ? (diff/target*100).toFixed(3) : '0') + '%)';
+
+  // PM indicator
+  const pmEl  = document.getElementById('ind-pm');
+  const pmVal = document.getElementById('ind-pm-val');
+  const pmSub = document.getElementById('ind-pm-sub');
+  if (pmHours > 0) {
+    const pmPct = grandHours > 0 ? pmHours / grandHours * 100 : 0;
+    const ok    = pmPct <= 5.0001;
+    pmEl.className = 'indicator ' + (ok ? 'ok' : 'warn');
+    pmVal.textContent = fmtNum(pmHours, 0) + ' hrs (' + pmPct.toFixed(2) + '%)';
+    pmSub.textContent = (ok ? '✓ Under 5% cap' : '⚠ Exceeds 5% cap') + ' · ' + fmtNum(grandHours, 0) + ' total hours';
+  } else {
+    pmEl.className = 'indicator ok';
+    pmVal.textContent = 'No PM task';
+    pmSub.textContent = fmtNum(grandHours, 0) + ' total hours';
+  }
+
+  // Show warnings if any
+  if (warnings.length) {
+    const wr = document.createElement('div');
+    wr.className = 'indicator warn';
+    wr.style.gridColumn = 'span 2';
+    wr.innerHTML = '<div class="ilabel">Warnings</div><div class="isub">' + warnings.map(escapeHtml).join('<br>') + '</div>';
+    document.querySelector('.indicators').appendChild(wr);
+  }
+
+  const results = document.getElementById('lt-results');
+  results.className = 'card results-card results show';
+  results.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// ── Number formatters ────────────────────────────────────────────────
+function fmtUSD(n) {
+  if (isNaN(n)) return '—';
+  return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function fmtNum(n, dp) {
+  if (isNaN(n)) return '—';
+  return n.toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp });
+}
+function escapeHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+// ╔══════════════════════════════════════════════════════════════════════╗
+// ║ INITIALIZATION                                                       ║
+// ╚══════════════════════════════════════════════════════════════════════╝
+loadSettings();
+checkExpirations();
+refreshLaborTabFromSettings();
+
+// Start with one empty labor task for convenience
+addLaborTask();
 </script>
 </body>
 </html>
