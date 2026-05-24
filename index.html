@@ -1171,61 +1171,111 @@ function escapeAttr(s) {
 // ── Solver ────────────────────────────────────────────────────────────
 
 // Find non-negative integer hours for each blank row such that
-// Σ(hours_i × rate_i) is as close as possible to `budget`.
-// Uses a DP "closest coin change" approach — far more accurate than
-// the old greedy +1 loop, especially for awkward rate combinations.
-function bestIntegerHoursAlloc(blankRows, budget) {
+// Σ(hours_i × rate_i × K) is as close as possible to `budgetCents` post-K cents.
+//
+// Strategy: all rows start at the same base (floor(budgetCents/sumCoins)), then
+// the remaining gap is filled in two passes:
+//   Pass 1 — 0-1 subset-sum: each row may receive at most +1 extra hour.
+//             This keeps hours maximally balanced (differ by ≤ 1).
+//   Pass 2 — unbounded knapsack: unlimited extras per row, large coins
+//             preferred.  Used only when it achieves strictly lower error
+//             than pass 1.
+// Working in post-K cents means DP error directly equals the final dollar error × 100.
+function bestIntegerHoursAlloc(blankRows, budgetCents, K) {
   if (blankRows.length === 0) return [];
-  const R = blankRows.reduce((s, r) => s + r.rate, 0);
-  if (R === 0 || budget <= 0) return blankRows.map(() => 0);
+  const n = blankRows.length;
+  const coins    = blankRows.map(r => Math.round(r.rate * K * 100)); // post-K cents/hr
+  const sumCoins = coins.reduce((a, c) => a + c, 0);
+  if (sumCoins === 0 || budgetCents <= 0) return blankRows.map(() => 0);
 
-  // Equal base: each row starts at floor(budget / R) hours
-  const baseH   = Math.max(0, Math.floor(budget / R));
-  const baseSum = baseH * R;
-  const gap     = budget - baseSum; // 0 <= gap < R
+  const baseH    = Math.max(0, Math.floor(budgetCents / sumCoins));
+  const gapCents = budgetCents - baseH * sumCoins; // always in [0, sumCoins)
 
-  if (gap < 0.005) return blankRows.map(() => baseH);
+  if (gapCents < 1) return blankRows.map(() => baseH);
 
-  // Work in integer cents to avoid floating-point drift
-  const SCALE    = 100;
-  const coins    = blankRows.map(r => Math.round(r.rate * SCALE));
-  const G        = Math.round(gap * SCALE);
-  const maxCoin  = Math.max(...coins);
-  const maxS     = G + maxCoin; // allow up to one coin of overshoot
+  const maxCoin = Math.max(...coins);
 
-  // usedCoin[s] = index of the coin used last to reach sum s, or -1 if unreachable
-  // Sentinel: index coins.length marks s=0 (reachable at cost 0)
-  const usedCoin = new Int16Array(maxS + 1).fill(-1);
-  usedCoin[0] = coins.length;
+  // Returns {extra[], err} for a closest-sum DP over [0, maxS].
+  // oneEach=true → 0-1 knapsack (reverse sweep, each row ≤ +1 extra).
+  // oneEach=false → unbounded (forward sweep, large coins preferred).
+  function solve(maxS, oneEach) {
+    const dp = new Int16Array(maxS + 1).fill(-1);
+    dp[0] = n; // sentinel: sum 0 reachable
 
-  for (let s = 1; s <= maxS; s++) {
-    for (let i = 0; i < coins.length; i++) {
-      if (coins[i] <= s && usedCoin[s - coins[i]] >= 0) {
-        usedCoin[s] = i;
-        break;
+    if (oneEach) {
+      for (let i = 0; i < n; i++) {
+        for (let s = maxS; s >= coins[i]; s--) {
+          if (dp[s] < 0 && dp[s - coins[i]] >= 0) dp[s] = i;
+        }
+      }
+    } else {
+      // Sort descending by coin value so larger rates are preferred,
+      // which minimises the number of rows that accumulate extra hours.
+      const order = [...Array(n).keys()].sort((a, b) => coins[b] - coins[a]);
+      for (let s = 1; s <= maxS; s++) {
+        for (const i of order) {
+          if (coins[i] <= s && dp[s - coins[i]] >= 0) { dp[s] = i; break; }
+        }
+      }
+    }
+
+    let bestS = 0;
+    for (let s = 1; s <= maxS; s++) {
+      if (dp[s] >= 0 && Math.abs(s - gapCents) < Math.abs(bestS - gapCents)) bestS = s;
+    }
+
+    const extra = new Array(n).fill(0);
+    let s = bestS;
+    while (s > 0 && dp[s] >= 0 && dp[s] < n) {
+      extra[dp[s]]++;
+      s -= coins[dp[s]];
+    }
+    return { extra, err: Math.abs(bestS - gapCents) };
+  }
+
+  // Pass 1: balanced 0-1 allocation (hours differ by at most 1)
+  const r01 = solve(sumCoins, true);
+  // Pass 2: unbounded fallback — only used if strictly more accurate
+  const rUb = solve(gapCents + maxCoin, false);
+
+  const extra = r01.err <= rUb.err ? r01.extra : rUb.extra;
+  return blankRows.map((_, i) => baseH + extra[i]);
+}
+
+// After the DP, nudge individual hours ±1 (or swap between rows) to narrow any
+// remaining gap. Handles cases where large coin granularity prevents DP from
+// reaching within $1.
+function localSearchRefine(blankRows, alloc, budgetCents, K) {
+  const coins = blankRows.map(r => Math.round(r.rate * K * 100));
+  const n = blankRows.length;
+  let improved = true, iter = 0;
+  while (improved && iter++ < 20) {
+    improved = false;
+    const cur    = alloc.reduce((s, h, i) => s + h * coins[i], 0);
+    const curErr = Math.abs(cur - budgetCents);
+    // Single-row ±1
+    for (let i = 0; i < n; i++) {
+      for (const d of [+1, -1]) {
+        if (alloc[i] + d < 0) continue;
+        if (Math.abs(cur + d * coins[i] - budgetCents) < curErr) {
+          alloc[i] += d; improved = true; break;
+        }
+      }
+      if (improved) break;
+    }
+    // Pair swaps: +1 on row i, -1 on row j
+    if (!improved) {
+      for (let i = 0; i < n && !improved; i++) {
+        for (let j = 0; j < n && !improved; j++) {
+          if (i === j || alloc[j] < 1) continue;
+          if (Math.abs(cur + coins[i] - coins[j] - budgetCents) < curErr) {
+            alloc[i]++; alloc[j]--; improved = true;
+          }
+        }
       }
     }
   }
-
-  // Find the reachable sum closest to G
-  let bestS = 0;
-  for (let s = 1; s <= maxS; s++) {
-    if (usedCoin[s] >= 0 && Math.abs(s - G) < Math.abs(bestS - G)) {
-      bestS = s;
-    }
-  }
-
-  // Reconstruct which rows get extra hours
-  const extra = new Array(blankRows.length).fill(0);
-  let s = bestS;
-  while (s > 0) {
-    const ci = usedCoin[s];
-    if (ci < 0 || ci >= blankRows.length) break;
-    extra[ci]++;
-    s -= coins[ci];
-  }
-
-  return blankRows.map((_, i) => baseH + extra[i]);
+  return alloc;
 }
 
 function calculateLabor() {
@@ -1314,6 +1364,8 @@ function calculateLabor() {
   const R_blank = blankRows.reduce((s, r) => s + r.rate, 0);
   const N_PM    = pmBlankRows.length;
   const N_blank = blankRows.length;
+  const targetCents = Math.round(target * 100); // post-K cents target
+  const F_cents     = Math.round(F_$ * 100);    // post-K cents already spent by fixed rows
 
   let warnings = [];
 
@@ -1323,10 +1375,11 @@ function calculateLabor() {
     warnings.push('Your entered hours already meet or exceed the target. Reduce or clear some values.');
   }
 
-  // Integer solver: compute ideal fractional PM hours (a_exact) via closed-form
-  // algebra, then floor to a whole number. Use DP-based closest-coin-change for
-  // blank rows to minimise the residual gap.
-  let a_int = 0; // whole hours per blank PM classification row
+  // Solve integer hours for blank rows, minimising |grandTotal - target| in post-K cents.
+  // For PM rows: compute a_exact via closed-form algebra then try both floor and ceil,
+  // picking whichever gets the final total closer to target while respecting the 5% cap.
+  let a_int = 0;
+  let blankAlloc = blankRows.map(() => 0);
 
   if (N_PM > 0) {
     // F_h_eff adjusts the non-PM fixed hours to account for already-entered PM hours:
@@ -1352,14 +1405,39 @@ function calculateLabor() {
           : Math.min(R_PM > 0 ? remaining / R_PM : 0, F_h_eff > 0 ? F_h_eff / (19 * N_PM) : 0);
       }
     }
-    a_int = Math.max(0, Math.floor(a_exact));
+
+    const a_floor   = Math.max(0, Math.floor(a_exact));
+    const pmEffCoin = pmBlankRows.reduce((s, r) => s + Math.round(r.rate * K * 100), 0);
+    let bestErr = Infinity;
+
+    for (const a of [a_floor, a_floor + 1]) {
+      const nonPM_budgetCents = targetCents - F_cents - a * pmEffCoin;
+      if (nonPM_budgetCents < 0 && N_blank > 0) continue;
+
+      const alloc = N_blank > 0
+        ? localSearchRefine(blankRows,
+            bestIntegerHoursAlloc(blankRows, Math.max(0, nonPM_budgetCents), K),
+            Math.max(0, nonPM_budgetCents), K)
+        : [];
+
+      // PM cap: (a * N_PM + F_h_PM) * 19 <= F_h_nonPM + sum(alloc)
+      const totalPM    = a * N_PM + F_h_PM;
+      const totalNonPM = F_h_nonPM + alloc.reduce((s, h) => s + h, 0);
+      if (totalPM * 19 > totalNonPM && a > 0) continue;
+
+      const allocCents = alloc.reduce((s, h, i) => s + h * Math.round(blankRows[i].rate * K * 100), 0);
+      const err = Math.abs(F_cents + a * pmEffCoin + allocCents - targetCents);
+      if (err < bestErr) { bestErr = err; a_int = a; blankAlloc = alloc; }
+    }
+  } else {
+    const nonPM_budgetCents = targetCents - F_cents;
+    blankAlloc = N_blank > 0
+      ? localSearchRefine(blankRows,
+          bestIntegerHoursAlloc(blankRows, Math.max(0, nonPM_budgetCents), K),
+          Math.max(0, nonPM_budgetCents), K)
+      : [];
   }
 
-  // Budget left after auto-calc PM rows (blank PM rows only)
-  const blankBudget = remaining - a_int * R_PM;
-
-  // Use DP to find the best whole-hour allocation for blank rows
-  const blankAlloc   = bestIntegerHoursAlloc(blankRows, blankBudget);
   const blankHoursMap = new Map();
   blankRows.forEach((r, i) => blankHoursMap.set(r, blankAlloc[i] || 0));
 
