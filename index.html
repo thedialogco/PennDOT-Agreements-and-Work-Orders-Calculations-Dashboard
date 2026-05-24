@@ -375,6 +375,14 @@
     .rtable tr.subrow-row.pm-row td {
       background: #f0f9ff;
     }
+    .rtable tr.task-subtotal td {
+      background: #e8f4f3;
+      color: #0D3B38;
+      font-weight: 600;
+      border-top: 1.5px solid #b3d4d2;
+      font-size: 12px;
+    }
+    .rtable tr.task-subtotal td.hours-cell { background: #d4e9e7; color: #0D3B38; }
     .rtable tr.total-row td {
       background: #0D3B38;
       color: #fff;
@@ -1100,12 +1108,6 @@ function addLaborTask(name = '', isPM = false) {
 function toggleTaskPM(checkbox) {
   const block = checkbox.closest('.lt-block');
   block.classList.toggle('pm', checkbox.checked);
-  // Make all hour inputs in this task read-only when PM is on
-  block.querySelectorAll('.sr-hours').forEach(inp => {
-    inp.readOnly = checkbox.checked;
-    if (checkbox.checked) inp.value = '';
-    inp.placeholder = checkbox.checked ? 'auto (PM)' : 'optional';
-  });
 }
 
 // Add a new rate classification — automatically appears in every labor task
@@ -1128,7 +1130,7 @@ function addSubrowDOM(tid, cidx, name, rate, hours, isPM) {
   row.innerHTML = `
     <input type="text" class="sr-name" placeholder="e.g. Principal, Project Manager, Sr. Project Manager" value="${escapeAttr(name)}" />
     <div class="dollar-wrap"><input type="text" inputmode="decimal" class="sr-rate" placeholder="0.00" value="${rate}" /><span class="dollar-symbol">$</span></div>
-    <input type="number" class="sr-hours" placeholder="${isPM ? 'auto (PM)' : 'optional'}" min="0" step="1" value="${hours}" ${isPM ? 'readonly' : ''} />
+    <input type="number" class="sr-hours" placeholder="optional" min="0" step="1" value="${hours}" />
     <button class="btn-icon" title="Remove this rate classification from this task only" onclick="this.closest('.subrow').remove()">✕</button>
   `;
   block.querySelector('.subrows').appendChild(row);
@@ -1298,16 +1300,19 @@ function calculateLabor() {
   const allRows = [];
   tasks.forEach(t => t.subrows.forEach(s => allRows.push({ ...s, parentName: t.name })));
 
-  // Partition
-  const pmRows    = allRows.filter(r => r.isPM);
-  const fixedRows = allRows.filter(r => !r.isPM && r.hours !== null && !isNaN(r.hours));
-  const blankRows = allRows.filter(r => !r.isPM && (r.hours === null || isNaN(r.hours)));
+  // Partition — PM rows with hours entered are treated as fixed; blank PM rows get auto-calc
+  const pmFixedRows    = allRows.filter(r => r.isPM && r.hours !== null && !isNaN(r.hours));
+  const pmBlankRows    = allRows.filter(r => r.isPM && (r.hours === null || isNaN(r.hours)));
+  const fixedRows      = allRows.filter(r => !r.isPM && r.hours !== null && !isNaN(r.hours));
+  const blankRows      = allRows.filter(r => !r.isPM && (r.hours === null || isNaN(r.hours)));
 
-  const F_$ = fixedRows.reduce((s, r) => s + r.hours * r.rate * K, 0);
-  const F_h = fixedRows.reduce((s, r) => s + r.hours, 0);
-  const R_PM    = pmRows.reduce((s, r) => s + r.rate, 0);
+  // Fixed cost includes all rows with entered hours (PM or not)
+  const F_$ = [...fixedRows, ...pmFixedRows].reduce((s, r) => s + r.hours * r.rate * K, 0);
+  const F_h_nonPM = fixedRows.reduce((s, r) => s + r.hours, 0);
+  const F_h_PM    = pmFixedRows.reduce((s, r) => s + r.hours, 0);
+  const R_PM    = pmBlankRows.reduce((s, r) => s + r.rate, 0);
   const R_blank = blankRows.reduce((s, r) => s + r.rate, 0);
-  const N_PM    = pmRows.length;
+  const N_PM    = pmBlankRows.length;
   const N_blank = blankRows.length;
 
   let warnings = [];
@@ -1321,13 +1326,19 @@ function calculateLabor() {
   // Integer solver: compute ideal fractional PM hours (a_exact) via closed-form
   // algebra, then floor to a whole number. Use DP-based closest-coin-change for
   // blank rows to minimise the residual gap.
-  let a_int = 0; // whole hours per PM classification row
+  let a_int = 0; // whole hours per blank PM classification row
 
   if (N_PM > 0) {
+    // F_h_eff adjusts the non-PM fixed hours to account for already-entered PM hours:
+    // cap constraint is 19*(a*N_PM + F_h_PM) <= F_h_nonPM + N_blank*b
+    // which rearranges to: 19*a*N_PM <= (F_h_nonPM - 19*F_h_PM) + N_blank*b = F_h_eff + N_blank*b
+    const F_h_eff = F_h_nonPM - 19 * F_h_PM;
     let a_exact = 0;
     if (N_blank === 0) {
       const aFromBudget = R_PM > 0 ? remaining / R_PM : 0;
-      const aFromCap    = F_h > 0  ? F_h / (19 * N_PM) : aFromBudget;
+      // With no blank non-PM rows: a <= F_h_eff / (19 * N_PM), or bypass cap if no fixed rows
+      const hasCap = F_h_nonPM > 0 || F_h_PM > 0;
+      const aFromCap = hasCap ? Math.max(0, F_h_eff / (19 * N_PM)) : aFromBudget;
       a_exact = Math.min(aFromBudget, aFromCap);
       if (aFromBudget - a_exact > 0.001) {
         warnings.push('PM hours are capped at 5% of total. Add non-PM rate classifications to absorb the remaining budget.');
@@ -1335,16 +1346,16 @@ function calculateLabor() {
     } else {
       const denom = N_blank * R_PM + 19 * N_PM * R_blank;
       if (denom > 0) {
-        const b_exact = (19 * N_PM * remaining - F_h * R_PM) / denom;
+        const b_exact = (19 * N_PM * remaining - F_h_eff * R_PM) / denom;
         a_exact = b_exact >= 0
-          ? (F_h + N_blank * b_exact) / (19 * N_PM)
-          : Math.min(R_PM > 0 ? remaining / R_PM : 0, F_h > 0 ? F_h / (19 * N_PM) : 0);
+          ? (F_h_eff + N_blank * b_exact) / (19 * N_PM)
+          : Math.min(R_PM > 0 ? remaining / R_PM : 0, F_h_eff > 0 ? F_h_eff / (19 * N_PM) : 0);
       }
     }
     a_int = Math.max(0, Math.floor(a_exact));
   }
 
-  // Budget left after fixed rows and PM rows
+  // Budget left after auto-calc PM rows (blank PM rows only)
   const blankBudget = remaining - a_int * R_PM;
 
   // Use DP to find the best whole-hour allocation for blank rows
@@ -1354,7 +1365,7 @@ function calculateLabor() {
 
   // Assemble final rows with integer hours
   const finalRows = allRows.map(r => {
-    if (r.isPM) return { ...r, hours: a_int };
+    if (r.isPM && (r.hours === null || isNaN(r.hours))) return { ...r, hours: a_int };
     if (r.hours !== null && !isNaN(r.hours)) return r;
     return { ...r, hours: blankHoursMap.get(r) || 0 };
   });
@@ -1380,6 +1391,8 @@ function renderLaborResults(tasks, finalRows, target, oh, esc, profit, K, warnin
     tbody.appendChild(grp);
 
     let subIdx = 0;
+    let taskHours = 0, taskPayroll = 0, taskEsc = 0, taskOh = 0, taskProfit = 0, taskTotal = 0;
+
     task.subrows.forEach(s => {
       subIdx++;
       // Find matching row in finalRows by reference identity check (parentName + name + rate)
@@ -1401,11 +1414,18 @@ function renderLaborResults(tasks, finalRows, target, oh, esc, profit, K, warnin
       grandTotal   += totCost;
       if (s.isPM) pmHours += hours;
 
+      taskHours   += hours;
+      taskPayroll += payroll;
+      taskOh      += ohAmt;
+      taskEsc     += escAmt;
+      taskProfit  += proAmt;
+      taskTotal   += totCost;
+
       const tr = document.createElement('tr');
       tr.className = 'subrow-row' + (s.isPM ? ' pm-row' : '');
       tr.innerHTML = `
         <td style="padding-left: 28px;">${taskIdx}.${subIdx} ${escapeHtml(s.name)}</td>
-        <td class="hours-cell">${fmtNum(hours, 0)}<button class="copy-hrs-btn" onclick="copyHours(this,${hours})" title="Copy hours">⧉</button></td>
+        <td class="hours-cell">${fmtNum(hours, 0)}</td>
         <td>${fmtUSD(s.rate)}</td>
         <td>${fmtUSD(payroll)}</td>
         <td>${fmtUSD(escAmt)}</td>
@@ -1415,6 +1435,22 @@ function renderLaborResults(tasks, finalRows, target, oh, esc, profit, K, warnin
       `;
       tbody.appendChild(tr);
     });
+
+    // Subtotal row for this task
+    const taskAvg = taskHours > 0 ? taskPayroll / taskHours : 0;
+    const subTr = document.createElement('tr');
+    subTr.className = 'task-subtotal';
+    subTr.innerHTML = `
+      <td style="padding-left: 28px;">Task ${taskIdx} Subtotal</td>
+      <td class="hours-cell">${fmtNum(taskHours, 0)}</td>
+      <td>${fmtUSD(taskAvg)}</td>
+      <td>${fmtUSD(taskPayroll)}</td>
+      <td>${fmtUSD(taskEsc)}</td>
+      <td>${fmtUSD(taskOh)}</td>
+      <td>${fmtUSD(taskProfit)}</td>
+      <td>${fmtUSD(taskTotal)}</td>
+    `;
+    tbody.appendChild(subTr);
   });
 
   // Total row
