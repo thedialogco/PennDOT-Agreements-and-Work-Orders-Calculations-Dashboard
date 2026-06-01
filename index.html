@@ -864,7 +864,7 @@ function buildSegments(ntpMonth, ntpYear, gftPct, duration) {
 
 function buildFormula(segs, ws, avgRate, esc, dur, ntpMonth, ntpYear, gftPct) {
   const firstAprilYear = ntpMonth < 3 ? ntpYear : ntpYear + 1;
-  const preamble = `Escalation: NTP anticipated in ${FULL[ntpMonth]}. GFT estimates a ${gftPct}% full yearly increase in April ${firstAprilYear}. This Work Order is expected to be completed within ${dur} months from NTP. Therefore: `;
+  const preamble = `Escalation: NTP anticipated in ${FULL[ntpMonth]}. GFT estimates a ${gftPct}% full yearly increase starting in April ${firstAprilYear}. This Work Order is expected to be completed within ${dur} months from NTP. Therefore: `;
   const parts = segs.map(s => {
     const start   = `${ABBR[s.sm]} ${s.sy}`;
     const end     = `${ABBR[s.em]} ${s.ey}`;
